@@ -321,26 +321,24 @@ void ProdSparseMatrixVectorByCols_OMP (SparseMatrix spr, int index, double *vec,
 /*********************************************************************************/
 
 void GetDiagonalSparseMatrix2 (SparseMatrix spr, int shft, double *diag, int *posd) {
-	int i, j, dim = (spr.dim1 < spr.dim2)? spr.dim1 : spr.dim2;
-	int *pp1 = NULL, *pp2 = NULL, *pi1 = NULL, *pi2 = posd; 
-	double *pd1 = NULL, *pd2 = diag;
+    int i, j, dim = (spr.dim1 < spr.dim2) ? spr.dim1 : spr.dim2;
+    int *pp1 = NULL, *pp2 = NULL, *pi1 = NULL, *pi2 = posd; 
+    double *pd1 = NULL, *pd2 = diag;
 
-	if (spr.vptr == spr.vpos)
-		CopyDoubles (spr.vval, diag, spr.dim1);
-	else {
-		pp1 = spr.vptr; pp2 = pp1+1; j = (*pp2-*pp1);
-		pi1 = spr.vpos+*pp1; pd1 = spr.vval+*pp1; 
-		for (i=0; i<dim; i++) {
-//			while ((j > 0) && (*pi1 < i))
-			while ((j > 0) && (*pi1 < (i+shft)))
-				{ pi1++; pd1++; j--; }
-//			*(pd2++) = ((j > 0) && (*pi1 == i))? *pd1: 0.0;
-			*(pd2++) = ((j > 0) && (*pi1 == (i+shft)))? *pd1: 0.0;
-//			*(pi2++) = ((j > 0) && (*pi1 == i))? *pp2-j: -1;
-			*(pi2++) = ((j > 0) && (*pi1 == (i+shft)))? *pp2-j: -1;
-			pi1 += j; pd1 += j; pp1 = (pp2++); j = (*pp2-*pp1);
-		}
-	}
+    if (spr.vptr == spr.vpos)
+        CopyDoubles (spr.vval, diag, spr.dim1);
+    else {
+        pp1 = spr.vptr; pp2 = pp1+1; j = (*pp2-*pp1);
+        pi1 = spr.vpos+*pp1; pd1 = spr.vval+*pp1; 
+        for (i=0; i<dim; i++) {
+            while ((j > 0) && (*pi1 < (i+shft))) {
+                pi1++; pd1++; j--;
+            }
+            *(pd2++) = ((j > 0) && (*pi1 == (i+shft))) ? *pd1: 0.0;
+            //*(pi2++) = ((j > 0) && (*pi1 == (i+shft))) ? *pp2-j: -1;
+            pi1 += j; pd1 += j; pp1 = (pp2++); j = (*pp2-*pp1);
+        }
+    }
 }
 
 /*********************************************************************************/

@@ -119,11 +119,12 @@ double DotDoubles (double *vdbl1, double *vdbl2, int dim) {
 }
 
 void VvecDoubles (double alfa, double *src1, double *src2, double beta, double *dst, int dim) {
-	int i;
+    int i;
 
-	for (i=0; i<dim; i++) { 
-		*dst = (beta * *dst) + (alfa * *(src1++) * *(src2++)); dst++; 
-	}
+    for (i = 0; i < dim; i++) {
+        dst[i] = (beta * dst[i]) + (alfa * src1[i] * src2[i]); 
+        //*dst = (beta * *dst) + (alfa * *(src1++) * *(src2++)); dst++; 
+    }
 }
 
 
