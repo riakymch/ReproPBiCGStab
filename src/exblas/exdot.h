@@ -6,7 +6,7 @@
  */
 
 /**
- *  @file exdot_serial.h
+ *  @file exdot.h
  *  @brief Serial version of exdot
  *
  *  @authors
