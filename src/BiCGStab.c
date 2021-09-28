@@ -28,7 +28,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     int IONE = 1; 
     double DONE = 1.0, DMONE = -1.0, DZERO = 0.0;
     int n, n_dist, iter, maxiter, nProcs;
-    double beta, tol, alpha, umbral, rho, omega, tmp;
+    double beta, tol, tol0, alpha, umbral, rho, omega, tmp;
     double *s = NULL, *q = NULL, *r = NULL, *p = NULL, *r0 = NULL, *y = NULL, *p_hat = NULL, *q_hat = NULL;
     double *aux = NULL;
     double t1, t2, t3, t4;
@@ -105,7 +105,8 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     MPI_Bcast(&rho, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     // ReproAllReduce -- End
     //MPI_Allreduce (MPI_IN_PLACE, &rho, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-    tol = sqrt (rho);
+    tol0 = sqrt (rho);
+    tol = tol0;
 
 #if DIRECT_ERROR
     // compute direct error
@@ -245,7 +246,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         MPI_Bcast(reduce, 2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
         // ReproAllReduce -- End
         tmp = reduce[0];
-        tol = sqrt (fabs(reduce[1]));
+        tol = sqrt (fabs(reduce[1])) / tol0;
 
         // beta = (alpha / omega) * <r0, r+1> / <r0, r>
         beta = (alpha / omega) * (tmp / rho);
