@@ -19,7 +19,7 @@
 
 #define DIRECT_ERROR 0
 #define PRECOND 1
-#define VECTOR_OUTPUT 1
+#define VECTOR_OUTPUT 0
 
 double dot_mpfr(int *N, double *a, int *inca, double *b, int *incb) {
     mpfr_t sum, dot, op1, op2;
@@ -68,7 +68,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #endif
 
     MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
-    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-6;
+    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-8;
     CreateDoubles (&s, n_dist);
     CreateDoubles (&q, n_dist);
     CreateDoubles (&r, n_dist);
@@ -116,7 +116,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
     // compute tolerance and <r0,r0>
     rho = dot_mpfr (&n_dist, r, &IONE, r, &IONE);                           // tol = r' * r
-    MPI_Allreduce (MPI_IN_PLACE, &rho, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     tol0 = sqrt (fabs(rho));
     tol = tol0; 
 
@@ -128,11 +127,9 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
     // compute inf norm
     direct_err = norm_inf(n_dist, res_err);
-    MPI_Allreduce(MPI_IN_PLACE, &direct_err, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
     //    // compute euclidean norm
     //    direct_err = ddot (&n_dist, res_err, &IONE, res_err, &IONE);            // direct_err = res_err' * res_err
-    //    MPI_Allreduce(MPI_IN_PLACE, &direct_err, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     //    direct_err = sqrt(direct_err);
 #endif // DIRECT_ERROR
 
@@ -159,7 +156,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #endif // DIRECT_ERROR
 
         alpha = dot_mpfr (&n_dist, r0, &IONE, s, &IONE);                // alpha = <r_0, r_iter> / <r_0, s>
-        MPI_Allreduce (MPI_IN_PLACE, &alpha, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         alpha = rho / alpha;
 
         dcopy (&n_dist, r, &IONE, q, &IONE);                            // q = r
@@ -179,7 +175,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         // omega = <q, y> / <y, y>
         reduce[0] = dot_mpfr (&n_dist, q, &IONE, y, &IONE);
         reduce[1] = dot_mpfr (&n_dist, y, &IONE, y, &IONE);
-        MPI_Allreduce(MPI_IN_PLACE, reduce, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         omega = reduce[0] / reduce[1];
 
         // x+1 = x + alpha * p + omega * q
@@ -195,7 +190,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         // TODO: can we just use <r0, r> as the stopping criteria although it is slower converging than <r, r>
         reduce[0] = dot_mpfr (&n_dist, r0, &IONE, r, &IONE);
         reduce[1] = dot_mpfr (&n_dist, r, &IONE, r, &IONE);
-        MPI_Allreduce (MPI_IN_PLACE, reduce, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         tmp = reduce[0];
         tol = sqrt (fabs(reduce[1])) / tol0;
 
@@ -216,11 +210,9 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
         // compute inf norm
         direct_err = norm_inf(n_dist, res_err);
-        MPI_Allreduce(MPI_IN_PLACE, &direct_err, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
         //        // compute euclidean norm
         //        direct_err = ddot (&n_dist, res_err, &IONE, res_err, &IONE);
-        //        MPI_Allreduce(MPI_IN_PLACE, &direct_err, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         //        direct_err = sqrt(direct_err);
 #endif // DIRECT_ERROR
 
@@ -365,6 +357,8 @@ int main (int argc, char **argv) {
         for(int j=vptrM[i]; j<vptrM[i+1]; j++) {
             sol1L[k] += matL.vval[j];
         }
+        // b = Ax_c, x_c = 1/sqrt(nbrows)
+        sol1L[k] = sol1L[k] / sqrt(dim);
         k++;
     }
 
@@ -372,13 +366,16 @@ int main (int argc, char **argv) {
 
     BiCGStab (matL, sol2L, sol1L, vdimL, vdspL, myId);
 
-    // Error computation
-    for (i=0; i<dimL; i++) sol2L[i] -= 1.0;
-
-    beta = dot_mpfr (&dimL, sol2L, &IONE, sol2L, &IONE);            
-    MPI_Allreduce (MPI_IN_PLACE, &beta, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-    beta = sqrt(beta);
+    // Error computation ||b-Ax||
+    // case with x_exact = {1.0}
+//    for (i=0; i<dimL; i++)
+//        sol2L[i] -= 1.0;
+//    beta = ddot (&dimL, sol2L, &IONE, sol2L, &IONE);            
+    InitDoubles (sol2, dimL, 0, 0);
+    ProdSparseMatrixVectorByRows (matL, 0, sol2L, sol2);            			// s = A * x
+    double DMONE = -1.0;
+    daxpy (&dimL, &DMONE, sol2, &IONE, sol1L, &IONE);                        // r -= s
+    beta = dot_mpfr (&dimL, sol1L, &IONE, sol1L, &IONE);            beta = sqrt(beta);
     if (myId == 0) 
         printf ("Error: %a\n", beta);
 
