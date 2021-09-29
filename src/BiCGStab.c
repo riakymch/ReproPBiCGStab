@@ -149,9 +149,9 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, r, r, &fpe[0]);
     // ReproAllReduce -- Begin
     if (myId == 0) {
-        MPI_Reduce (MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op2, 0, MPI_COMM_WORLD);
+        MPI_Reduce (MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
     } else {
-        MPI_Reduce (&fpe[0], NULL, NBFPE, MPI_DOUBLE, Op2, 0, MPI_COMM_WORLD);
+        MPI_Reduce (&fpe[0], NULL, NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
     }
     if (myId == 0) {
         rho = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
@@ -205,9 +205,9 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, r0, s, &fpe[0]);
         // ReproAllReduce -- Begin
         if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op2, 0, MPI_COMM_WORLD);
+            MPI_Reduce (MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
         } else {
-            MPI_Reduce (&fpe[0], NULL, NBFPE, MPI_DOUBLE, Op2, 0, MPI_COMM_WORLD);
+            MPI_Reduce (&fpe[0], NULL, NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
         }
         if (myId == 0) {
             alpha = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
