@@ -18,8 +18,8 @@
 #include <mpfr.h>
 
 #define DIRECT_ERROR 0
-#define PRECOND 0
-#define VECTOR_OUTPUT 0
+#define PRECOND 1
+#define VECTOR_OUTPUT 1
 
 double dot_mpfr(int *N, double *a, int *inca, double *b, int *incb) {
     mpfr_t sum, dot, op1, op2;
@@ -99,8 +99,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     // write to file for testing purpose
     FILE *fp;
     if (myId == 0) {
-        char name[50];
-        sprintf(name, "%d.txt", nProcs);
+        char name[50] = "mpfr-1.txt";
         fp = fopen(name,"w");
     }
 #endif
@@ -156,10 +155,10 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #if DIRECT_ERROR
             printf ("%d \t %a \t %a \n", iter, tol, direct_err);
 #else        
-        printf ("%d \t %20.10e \n", iter, tol);
+        printf ("%d \t %a \n", iter, tol);
 #endif // DIRECT_ERROR
 
-        alpha = dot_mpfr (&n_dist, r0, &IONE, s, &IONE);                    // alpha = <r_0, r_iter> / <r_0, s>
+        alpha = dot_mpfr (&n_dist, r0, &IONE, s, &IONE);                // alpha = <r_0, r_iter> / <r_0, s>
         MPI_Allreduce (MPI_IN_PLACE, &alpha, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         alpha = rho / alpha;
 
@@ -236,10 +235,11 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     // print aux
     MPI_Allgatherv (x, n_dist, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
     if (myId == 0) {
-        fprintf(fp, "%d ", iter);
+        fprintf(fp, "%d\n", iter);
         for (int ip = 0; ip < n; ip++)
-            fprintf(fp, "%20.10e ", aux[ip]);
+            fprintf(fp, "%a\n", aux[ip]);
         fprintf(fp, "\n");
+        fclose(fp);
     }
 #endif
 
