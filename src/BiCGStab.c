@@ -22,7 +22,7 @@
 
 #define DIRECT_ERROR 0
 #define PRECOND 1
-#define VECTOR_OUTPUT 1
+#define VECTOR_OUTPUT 0
 #define NBFPE 8
 
 /* 
@@ -90,7 +90,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #endif
 
     MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
-    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-6;
+    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-8;
     CreateDoubles (&s, n_dist);
     CreateDoubles (&q, n_dist);
     CreateDoubles (&r, n_dist);
@@ -457,6 +457,8 @@ int main (int argc, char **argv) {
         for(int j=vptrM[i]; j<vptrM[i+1]; j++) {
             sol1L[k] += matL.vval[j];
         }
+        // b = Ax_c, x_c = 1/sqrt(nbrows)
+        sol1L[k] = sol1L[k] / sqrt(dim);
         k++;
     }
 
@@ -464,11 +466,19 @@ int main (int argc, char **argv) {
 
     BiCGStab (matL, sol2L, sol1L, vdimL, vdspL, myId);
 
-    // Error computation
-    for (i=0; i<dimL; i++) sol2L[i] -= 1.0;
+    // Error computation ||b-Ax||
+    // case with x_exact = {1.0}
+//    for (i=0; i<dimL; i++)
+//        sol2L[i] -= 1.0;
+//    beta = ddot (&dimL, sol2L, &IONE, sol2L, &IONE);            
+    MPI_Allgatherv (sol2L, dimL, MPI_DOUBLE, sol2, vdimL, vdspL, MPI_DOUBLE, MPI_COMM_WORLD);
+    InitDoubles (sol2L, dimL, 0, 0);
+    ProdSparseMatrixVectorByRows (matL, 0, sol2, sol2L);
+    double DMONE = -1.0;
+    daxpy (&dimL, &DMONE, sol2L, &IONE, sol1L, &IONE);
 
     std::vector<double> fpe(NBFPE);
-    exblas::cpu::exdot<double*, double*, NBFPE> (dimL, sol2L, sol2L, &fpe[0]);
+    exblas::cpu::exdot<double*, double*, NBFPE> (dimL, sol1L, sol1L, &fpe[0]);
 
     // ReproAllReduce -- Begin
     // user-defined reduction operations
