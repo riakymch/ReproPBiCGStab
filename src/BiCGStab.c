@@ -21,7 +21,7 @@
 
 #define DIRECT_ERROR 0
 #define PRECOND 1
-#define VECTOR_OUTPUT 0
+#define VECTOR_OUTPUT 1
 
 void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, int myId) {
     int size = mat.dim2, sizeR = mat.dim1; 
@@ -71,7 +71,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     FILE *fp;
     if (myId == 0) {
         char name[50];
-        sprintf(name, "%d.txt", nProcs);
+        sprintf(name, "exblas-%d.txt", nProcs);
         fp = fopen(name,"w");
     }
 #endif
@@ -89,10 +89,9 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     // compute tolerance and <r0,r0>
     std::vector<int64_t> h_superacc(2 * exblas::BIN_COUNT);
     std::vector<int64_t> h_superacc_tol(exblas::BIN_COUNT);
-    //rho = ddot (&n_dist, r, &IONE, r, &IONE);                           // tol = r' * r
+    int imin=exblas::IMIN, imax=exblas::IMAX;
     exblas::cpu::exdot (n_dist, r, r, &h_superacc[0]);
     // ReproAllReduce -- Begin
-    int imin=exblas::IMIN, imax=exblas::IMAX;
     exblas::cpu::Normalize(&h_superacc[0], imin, imax);
     if (myId == 0) {
         MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -104,7 +103,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     }
     MPI_Bcast(&rho, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     // ReproAllReduce -- End
-    //MPI_Allreduce (MPI_IN_PLACE, &rho, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     tol0 = sqrt (rho);
     tol = tol0;
 
@@ -137,18 +135,16 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #endif
         MPI_Allgatherv (p_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
         InitDoubles (s, sizeR, DZERO, DZERO);
-        ProdSparseMatrixVectorByRows (mat, 0, aux, s);            	    // s = A * p
+        ProdSparseMatrixVectorByRows (mat, 0, aux, s);            	     // s = A * p
 
         if (myId == 0) 
 #if DIRECT_ERROR
             printf ("%d \t %a \t %a \n", iter, tol, direct_err);
 #else        
-        printf ("%d \t %20.10e \n", iter, tol);
+        printf ("%d \t %a \n", iter, tol);
 #endif // DIRECT_ERROR
 
-        //alpha = ddot (&n_dist, r0, &IONE, s, &IONE);                    // alpha = <r_0, r_iter> / <r_0, s>
-        //MPI_Allreduce (MPI_IN_PLACE, &alpha, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        exblas::cpu::exdot (n_dist, r0, s, &h_superacc[0]);
+        exblas::cpu::exdot (n_dist, r0, s, &h_superacc[0]);             // alpha = <r_0, r_iter> / <r_0, s>
         // ReproAllReduce -- Begin
         exblas::cpu::Normalize(&h_superacc[0], imin, imax);
         if (myId == 0) {
@@ -178,9 +174,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         ProdSparseMatrixVectorByRows (mat, 0, aux, y);            		// y = A * q
 
         // omega = <q, y> / <y, y>
-//        reduce[0] = ddot (&n_dist, q, &IONE, y, &IONE);
-//        reduce[1] = ddot (&n_dist, y, &IONE, y, &IONE);
-//        MPI_Allreduce(MPI_IN_PLACE, reduce, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         exblas::cpu::exdot (n_dist, q, y, &h_superacc[0]);
         exblas::cpu::exdot (n_dist, y, y, &h_superacc_tol[0]);
         // ReproAllReduce -- Begin
@@ -218,9 +211,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         
         // rho = <r0, r+1> and tolerance
         // TODO: can we just use <r0, r> as the stopping criteria although it is slower converging than <r, r>
-//        reduce[0] = ddot (&n_dist, r0, &IONE, r, &IONE);
-//        reduce[1] = ddot (&n_dist, r, &IONE, r, &IONE);
-//        MPI_Allreduce (MPI_IN_PLACE, reduce, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         exblas::cpu::exdot (n_dist, r0, r, &h_superacc[0]);
         exblas::cpu::exdot (n_dist, r, r, &h_superacc_tol[0]);
         // ReproAllReduce -- Begin
@@ -284,10 +274,10 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     // print aux
     MPI_Allgatherv (x, n_dist, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
     if (myId == 0) {
-        fprintf(fp, "%d ", iter);
+        fprintf(fp, "%d\n", iter);
         for (int ip = 0; ip < n; ip++)
-            fprintf(fp, "%20.10e ", aux[ip]);
-        fprintf(fp, "\n");
+            fprintf(fp, "%a\n", aux[ip]);
+        fclose(fp);
     }
 #endif
 
@@ -423,8 +413,6 @@ int main (int argc, char **argv) {
     // Error computation
     for (i=0; i<dimL; i++) sol2L[i] -= 1.0;
 
-//    beta = ddot (&dimL, sol2L, &IONE, sol2L, &IONE);            
-//    MPI_Allreduce (MPI_IN_PLACE, &beta, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     // ReproAllReduce -- Begin
     std::vector<int64_t> h_superacc(exblas::BIN_COUNT);
     exblas::cpu::exdot (dimL, sol2L, sol2L, &h_superacc[0]);
