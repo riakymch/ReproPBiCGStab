@@ -18,7 +18,7 @@
 
 #define DIRECT_ERROR 0
 #define PRECOND 1
-#define VECTOR_OUTPUT 0
+#define VECTOR_OUTPUT 1
 
 void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, int myId) {
     int size = mat.dim2, sizeR = mat.dim1; 
@@ -36,7 +36,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #endif
 
     MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
-    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-6;
+    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-8;
     CreateDoubles (&s, n_dist);
     CreateDoubles (&q, n_dist);
     CreateDoubles (&r, n_dist);
@@ -68,7 +68,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     FILE *fp;
     if (myId == 0) {
         char name[50];
-        sprintf(name, "%d.txt", nProcs);
+        sprintf(name, "orig-%d.txt", nProcs);
         fp = fopen(name,"w");
     }
 #endif
@@ -124,7 +124,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #if DIRECT_ERROR
             printf ("%d \t %a \t %a \n", iter, tol, direct_err);
 #else        
-        printf ("%d \t %20.10e \n", iter, tol);
+        printf ("%d \t %a \n", iter, tol);
 #endif // DIRECT_ERROR
 
         alpha = ddot (&n_dist, r0, &IONE, s, &IONE);                    // alpha = <r_0, r_iter> / <r_0, s>
@@ -204,10 +204,9 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     // print aux
     MPI_Allgatherv (x, n_dist, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
     if (myId == 0) {
-        fprintf(fp, "%d ", iter);
+        fprintf(fp, "%d\n", iter);
         for (int ip = 0; ip < n; ip++)
-            fprintf(fp, "%20.10e ", aux[ip]);
-        fprintf(fp, "\n");
+            fprintf(fp, "%a\n", aux[ip]);
     }
 #endif
 
