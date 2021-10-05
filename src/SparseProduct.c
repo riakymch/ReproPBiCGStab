@@ -100,6 +100,61 @@ void DesymmetrizeSparseMatrices (SparseMatrix src, int indexS, ptr_SparseMatrix 
 
 /*********************************************************************************/
 
+// This routine creates de sparse matrix dst from the matrix spr.
+// The parameters indexS and indexD indicate, respectivaly, if 0-indexing or 1-indexing is used
+// to store the sparse matrices.
+void TransposeSparseMatrices (SparseMatrix src, int indexS, ptr_SparseMatrix dst, int indexD) {
+    int n = src.dim1, nnz = 0;
+    int *sizes = NULL;
+    int *pp1 = NULL, *pp2 = NULL, *pp3 = NULL, *pp4 = NULL, *pp5 = NULL;
+    int i, j, dim, indexDS = indexD - indexS;
+    double *pd3 = NULL, *pd4 = NULL;
+
+    // The vector sizes is created and initiated
+    CreateInts (&sizes, n); InitInts (sizes, n, 0, 0);
+    // This loop counts the number of elements in each row
+    pp1 = src.vptr; pp3 = src.vpos + *pp1 - indexS;
+    pp2 = pp1 + 1 ; pp4 = sizes - indexS;
+    for (i=indexS; i<(n+indexS); i++) {
+        // The size of the corresponding row is accumulated
+        dim = (*pp2 - *pp1); 
+        // Now each component of the row is analyzed
+        for (j=0; j<dim; j++) {
+            pp4[*pp3]++;
+            pp3++;
+        }
+        pp1 = pp2++; 
+    }
+
+    // Compute the number of nonzeros of the new sparse matrix
+    nnz = AddInts (sizes, n); 
+    // Create the new sparse matrix
+    CreateSparseMatrix (dst, indexD, n, n, nnz, 0);
+    // Fill the vector of pointers
+    CopyInts (sizes, (dst->vptr) + 1, n);
+    dst->vptr[0] = indexD; TransformLengthtoHeader (dst->vptr, n);
+    // The vector sizes is initiated with the beginning of each row
+    CopyInts (dst->vptr, sizes, n);
+    // This loop fills the contents of vector vpos
+    pp1 = src.vptr; pp3 = src.vpos + *pp1 - indexS; 
+    pp2 = pp1 + 1 ; pp4 = dst->vpos - indexD; pp5 = sizes - indexS;
+    pd3 = src.vval  + *pp1 - indexS; pd4 = dst->vval - indexD;
+    for (i=indexS; i<(n+indexS); i++) {
+        dim = (*pp2 - *pp1);
+        for (j=0; j<dim; j++) {
+            // The elements in the i-th column
+            pp4[pp5[*pp3]  ] = i+indexDS;
+            pd4[pp5[*pp3]++] = *pd3;
+            pp3++; pd3++;
+        }
+        pp1 = pp2++;
+    }
+    // The memory related to the vector sizes is liberated
+    RemoveInts (&sizes);
+}
+
+/*********************************************************************************/
+
 int ReadMatrixHB (char *filename, ptr_SparseMatrix p_spr) {
   int *colptr = NULL;
   double *exact = NULL;
@@ -261,7 +316,7 @@ void ProdSparseMatrixVectorByRows_OMP (SparseMatrix spr, int index, double *vec,
 */
 
 void ProdSparseMatrixVectorByRows_OMPTasks (SparseMatrix spr, int index, double *vec, double *res, int bm) {
-	int i, j, dim = spr.dim1;
+	int i, j, idx, dim = spr.dim1;
 	int *pp1 = spr.vptr, *pi1 = spr.vpos + *pp1 - index;
 	double aux, *pvec = vec + *pp1 - index;
 	double *pd1 = spr.vval + *pp1 - index;
