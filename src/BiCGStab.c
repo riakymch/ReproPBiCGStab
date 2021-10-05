@@ -20,7 +20,7 @@
 // ================================================================================
 
 #define DIRECT_ERROR 0
-#define PRECOND 1
+#define PRECOND 0
 #define VECTOR_OUTPUT 0
 
 void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, int myId) {
@@ -39,7 +39,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #endif
 
     MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
-    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-8;
+    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-6;
     CreateDoubles (&s, n_dist);
     CreateDoubles (&q, n_dist);
     CreateDoubles (&r, n_dist);
@@ -94,9 +94,9 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     // ReproAllReduce -- Begin
     exblas::cpu::Normalize(&h_superacc[0], imin, imax);
     if (myId == 0) {
-        MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
     } else {
-        MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
     }
     if (myId == 0) {
         rho = exblas::cpu::Round( &h_superacc[0] );
@@ -148,9 +148,9 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         // ReproAllReduce -- Begin
         exblas::cpu::Normalize(&h_superacc[0], imin, imax);
         if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
         } else {
-            MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+            MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
         }
         if (myId == 0) {
             alpha = exblas::cpu::Round( &h_superacc[0] );
@@ -184,9 +184,9 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
             h_superacc[exblas::BIN_COUNT + i] = h_superacc_tol[i]; 
         } 
         if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
         } else {
-            MPI_Reduce (&h_superacc[0], NULL, 2*exblas::BIN_COUNT, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+            MPI_Reduce (&h_superacc[0], NULL, 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
         }
         if (myId == 0) {
             // split them back
@@ -210,7 +210,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         daxpy (&n_dist, &tmp, y, &IONE, r, &IONE);                      // r = q - omega * y;
         
         // rho = <r0, r+1> and tolerance
-        // TODO: can we just use <r0, r> as the stopping criteria although it is slower converging than <r, r>
+        // cannot just use <r0, r> as the stopping criteria since it slows the convergence compared to <r, r>
         exblas::cpu::exdot (n_dist, r0, r, &h_superacc[0]);
         exblas::cpu::exdot (n_dist, r, r, &h_superacc_tol[0]);
         // ReproAllReduce -- Begin
@@ -221,9 +221,9 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
             h_superacc[exblas::BIN_COUNT + i] = h_superacc_tol[i]; 
         } 
         if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
         } else {
-            MPI_Reduce (&h_superacc[0], NULL, 2*exblas::BIN_COUNT, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+            MPI_Reduce (&h_superacc[0], NULL, 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
         }
         if (myId == 0) {
             // split them back
@@ -301,14 +301,14 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
 int main (int argc, char **argv) {
     int dim; 
-    double *vec = NULL, *sol1 = NULL, *sol2 = NULL;
+    double *sol1 = NULL, *sol2 = NULL;
     int index = 0, indexL = 0;
     SparseMatrix mat  = {0, 0, NULL, NULL, NULL}, sym = {0, 0, NULL, NULL, NULL};
 
     int root = 0, myId, nProcs;
     int dimL, dspL, *vdimL = NULL, *vdspL = NULL;
     SparseMatrix matL = {0, 0, NULL, NULL, NULL};
-    double *vecL = NULL, *sol1L = NULL, *sol2L = NULL;
+    double *sol1L = NULL, *sol2L = NULL;
 
     int mat_from_file, nodes, size_param, stencil_points;
 
@@ -338,7 +338,7 @@ int main (int argc, char **argv) {
         if (myId == root) {
             // Creating the matrix
             ReadMatrixHB (argv[1], &sym);
-            DesymmetrizeSparseMatrices (sym, 0, &mat, 0);
+            TransposeSparseMatrices (sym, 0, &mat, 0);
             dim = mat.dim1;
         }
 
@@ -368,45 +368,28 @@ int main (int argc, char **argv) {
     MPI_Barrier(MPI_COMM_WORLD);
 
     // Creating the vectors
-    if (myId == root) {
-        CreateDoubles (&vec , dim);
-        CreateDoubles (&sol1, dim);
-        CreateDoubles (&sol2, dim);
-        InitRandDoubles (vec, dim, -1.0, 1.0);
-        InitDoubles (sol1, dim, 0.0, 0.0);
-        InitDoubles (sol2, dim, 0.0, 0.0);
-    } else {
-        CreateDoubles (&vec , dim);
-        CreateDoubles (&sol2, dim);
-        InitDoubles (vec , dim, 0.0, 0.0);
-        InitDoubles (sol2, dim, 0.0, 0.0);
-    }
-    CreateDoubles (&vecL , dimL);
+    CreateDoubles (&sol1, dim);
+    CreateDoubles (&sol2, dim);
     CreateDoubles (&sol1L, dimL);
     CreateDoubles (&sol2L, dimL);
-    InitDoubles (vecL , dimL, 0.0, 0.0);
+    InitDoubles (sol1, dim, 1.0, 0.0);
+    InitDoubles (sol2, dim, 0.0, 0.0);
     InitDoubles (sol1L, dimL, 0.0, 0.0);
     InitDoubles (sol2L, dimL, 0.0, 0.0);
 
     /***************************************/
 
-    int i, IONE = 1;
-    double beta;
-    if (myId == root) {
-        InitDoubles (vec, dim, 1.0, 0.0);
-        InitDoubles (sol1, dim, 0.0, 0.0);
-        InitDoubles (sol2, dim, 0.0, 0.0);
-    }
-    int k=0;
-    int *vptrM = matL.vptr;
-    for (int i=0; i < matL.dim1; i++) {
-        for(int j=vptrM[i]; j<vptrM[i+1]; j++) {
-            sol1L[k] += matL.vval[j];
-        }
-        // b = Ax_c, x_c = 1/sqrt(nbrows)
-        sol1L[k] = sol1L[k] / sqrt(dim);
-        k++;
-    }
+    int IONE = 1;
+//    for (int i=0; i < matL.dim1; i++) {
+//        for(int j=vptrM[i]; j<vptrM[i+1]; j++) {
+//            sol1L[k] += matL.vval[j];
+//        }
+//    }
+
+    // compute b = A * x_c, x_c = 1/sqrt(nbrows)
+    double beta = 1.0 / sqrt(dim);
+    ProdSparseMatrixVectorByRows (matL, 0, sol1, sol1L);            			// s = A * x
+    dscal (&dimL, &beta, sol1L, &IONE);                                         // s = beta * s
 
     MPI_Scatterv (sol2, vdimL, vdspL, MPI_DOUBLE, sol2L, dimL, MPI_DOUBLE, root, MPI_COMM_WORLD);
 
@@ -429,9 +412,9 @@ int main (int argc, char **argv) {
     int imin=exblas::IMIN, imax=exblas::IMAX;
     exblas::cpu::Normalize(&h_superacc[0], imin, imax);
     if (myId == 0) {
-        MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
     } else {
-        MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
     }
     if (myId == 0) {
         beta = exblas::cpu::Round( &h_superacc[0] );
@@ -441,18 +424,19 @@ int main (int argc, char **argv) {
 
     beta = sqrt(beta);
     if (myId == 0) 
-        printf ("Error: %a\n", beta);
+        printf ("Error: %20.10e\n", beta);
 
     /***************************************/
     // Freeing memory
-    RemoveDoubles (&sol2L); RemoveDoubles (&sol1L); RemoveDoubles (&vecL);
+    RemoveDoubles (&sol1); 
+    RemoveDoubles (&sol2); 
+    RemoveDoubles (&sol1L); 
+    RemoveDoubles (&sol2L);
     RemoveInts (&vdspL); RemoveInts (&vdimL); 
     if (myId == root) {
-        RemoveDoubles (&sol2); RemoveDoubles (&sol1); RemoveDoubles (&vec);
-        RemoveSparseMatrix (&mat); RemoveSparseMatrix (&sym);
-    } else {
-        RemoveDoubles (&sol2); RemoveDoubles (&vec);
-    }
+        RemoveSparseMatrix (&mat);
+        RemoveSparseMatrix (&sym);
+    } 
 
     MPI_Finalize ();
 
