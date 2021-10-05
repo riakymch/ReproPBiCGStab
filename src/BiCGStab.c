@@ -87,6 +87,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     rho = ddot (&n_dist, r, &IONE, r, &IONE);                           // tol = r' * r
     MPI_Allreduce (MPI_IN_PLACE, &rho, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     tol0 = sqrt (rho);
+    printf("rho0 = %f\n", rho);
     tol = tol0;
 
 #if DIRECT_ERROR
@@ -213,7 +214,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     if (myId == 0) {
         printf ("Size: %d \n", n);
         printf ("Iter: %d \n", iter);
-        printf ("Tol: %20.10e \n", tol);
+        printf ("Tol: %a \n", tol);
         printf ("Time_loop: %20.10e\n", (t3-t1));
         printf ("Time_iter: %20.10e\n", (t3-t1)/iter);
     }
@@ -301,7 +302,8 @@ int main (int argc, char **argv) {
     CreateDoubles (&sol2, dim);
     CreateDoubles (&sol1L, dimL);
     CreateDoubles (&sol2L, dimL);
-    InitDoubles (sol1, dim, 1.0, 0.0);
+    double beta = 1.0 / sqrt(dim);
+    InitDoubles (sol1, dim, beta, 0.0);
     InitDoubles (sol2, dim, 0.0, 0.0);
     InitDoubles (sol1L, dimL, 0.0, 0.0);
     InitDoubles (sol2L, dimL, 0.0, 0.0);
@@ -316,9 +318,7 @@ int main (int argc, char **argv) {
 //    }
 
     // compute b = A * x_c, x_c = 1/sqrt(nbrows)
-    double beta = 1.0 / sqrt(dim);
     ProdSparseMatrixVectorByRows (matL, 0, sol1, sol1L);            			// s = A * x
-    dscal (&dimL, &beta, sol1L, &IONE);                                         // s = beta * s
 
     MPI_Scatterv (sol2, vdimL, vdspL, MPI_DOUBLE, sol2L, dimL, MPI_DOUBLE, root, MPI_COMM_WORLD);
 
@@ -340,7 +340,7 @@ int main (int argc, char **argv) {
 
     beta = sqrt(beta);
     if (myId == 0) 
-        printf ("Error: %20.10e\n", beta);
+        printf ("Error: %a\n", beta);
 
     /***************************************/
     // Freeing memory

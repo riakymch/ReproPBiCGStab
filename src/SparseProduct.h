@@ -32,6 +32,7 @@ extern void RemoveSparseMatrix (ptr_SparseMatrix spr);
 // to store the sparse matrices.
 extern void DesymmetrizeSparseMatrices (SparseMatrix src, int indexS, ptr_SparseMatrix dst, 
 																					int indexD);
+
 // This routine creates de sparse matrix dst from the matrix spr.
 // The parameters indexS and indexD indicate, respectivaly, if 0-indexing or 1-indexing is used
 // to store the sparse matrices.
