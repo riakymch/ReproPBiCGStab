@@ -100,6 +100,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     }
     if (myId == 0) {
         rho = exblas::cpu::Round( &h_superacc[0] );
+        printf("rho0 = %20.10e\n", rho);
     }
     MPI_Bcast(&rho, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     // ReproAllReduce -- End
@@ -236,7 +237,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         MPI_Bcast(reduce, 2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
         // ReproAllReduce -- End
         tmp = reduce[0];
-        tol = sqrt (fabs(reduce[1])) / tol0;
+        tol = sqrt (reduce[1]) / tol0;
 
         // beta = (alpha / omega) * <r0, r+1> / <r0, r>
         beta = (alpha / omega) * (tmp / rho);
