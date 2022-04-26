@@ -36,7 +36,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #endif
 
     MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
-    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-6;
+    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-8;
     CreateDoubles (&s, n_dist);
     CreateDoubles (&q, n_dist);
     CreateDoubles (&r, n_dist);
@@ -232,7 +232,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
 int main (int argc, char **argv) {
     int dim; 
-    double *sol2 = NULL, *sol1 = NULL;
+	double *sol1 = NULL, *sol2 = NULL;
     int index = 0, indexL = 0;
     SparseMatrix mat  = {0, 0, NULL, NULL, NULL}, sym = {0, 0, NULL, NULL, NULL};
 
@@ -293,8 +293,8 @@ int main (int argc, char **argv) {
         generate_Poisson3D_filled(&matL, size_param, stencil_points, band_width, dspL, dimL, dim);
 
         // To generate ill-conditioned matrices
-        double factor = 1.0e6;
-        ScaleFirstRowCol(matL, dspL, dimL, myId, root, factor);
+//        double factor = 1.0e6;
+//        ScaleFirstRowCol(matL, dspL, dimL, myId, root, factor);
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -303,8 +303,12 @@ int main (int argc, char **argv) {
     CreateDoubles (&sol2, dim);
     CreateDoubles (&sol1L, dimL);
     CreateDoubles (&sol2L, dimL);
+
     double beta = 1.0 / sqrt(dim);
-    InitDoubles (sol1, dim, beta, 0.0);
+    if(mat_from_file)
+        InitDoubles (sol1, dim, beta, 0.0);
+    else 
+        InitDoubles (sol1, dim, 0.0, 0.0);
     InitDoubles (sol2, dim, 0.0, 0.0);
     InitDoubles (sol1L, dimL, 0.0, 0.0);
     InitDoubles (sol2L, dimL, 0.0, 0.0);
@@ -312,31 +316,38 @@ int main (int argc, char **argv) {
     /***************************************/
 
     int IONE = 1;
-//    for (int i=0; i < matL.dim1; i++) {
-//        for(int j=vptrM[i]; j<vptrM[i+1]; j++) {
-//            sol1L[k] += matL.vval[j];
-//        }
-//    }
-
-    // compute b = A * x_c, x_c = 1/sqrt(nbrows)
-    ProdSparseMatrixVectorByRows (matL, 0, sol1, sol1L);            			// s = A * x
+    if(mat_from_file) {
+        // compute b = A * x_c, x_c = 1/sqrt(nbrows)
+        ProdSparseMatrixVectorByRows (matL, 0, sol1, sol1L);            			// s = A * x
+    } else {
+        int k=0;
+        int *vptrM = matL.vptr;
+        for (int i=0; i < matL.dim1; i++) {
+            for(int j=vptrM[i]; j<vptrM[i+1]; j++) {
+                sol1L[k] += matL.vval[j];
+            }
+        }
+    }
 
     MPI_Scatterv (sol2, vdimL, vdspL, MPI_DOUBLE, sol2L, dimL, MPI_DOUBLE, root, MPI_COMM_WORLD);
 
     BiCGStab (matL, sol2L, sol1L, vdimL, vdspL, myId);
 
     // Error computation ||b-Ax||
-    // case with x_exact = {1.0}
-//    for (i=0; i<dimL; i++)
-//        sol2L[i] -= 1.0;
-//    beta = ddot (&dimL, sol2L, &IONE, sol2L, &IONE);            
-    MPI_Allgatherv (sol2L, dimL, MPI_DOUBLE, sol2, vdimL, vdspL, MPI_DOUBLE, MPI_COMM_WORLD);
-    InitDoubles (sol2L, dimL, 0, 0);
-    ProdSparseMatrixVectorByRows (matL, 0, sol2, sol2L);            			// s = A * x
-    double DMONE = -1.0;
-    daxpy (&dimL, &DMONE, sol2L, &IONE, sol1L, &IONE);                          // r -= s
+//    if(mat_from_file) {
+        MPI_Allgatherv (sol2L, dimL, MPI_DOUBLE, sol2, vdimL, vdspL, MPI_DOUBLE, MPI_COMM_WORLD);
+        InitDoubles (sol2L, dimL, 0, 0);
+        ProdSparseMatrixVectorByRows (matL, 0, sol2, sol2L);            			// s = A * x
+        double DMONE = -1.0;
+        daxpy (&dimL, &DMONE, sol2L, &IONE, sol1L, &IONE);                          // r -= s
 
-    beta = ddot (&dimL, sol1L, &IONE, sol1L, &IONE);            
+        beta = ddot (&dimL, sol1L, &IONE, sol1L, &IONE);
+//    } else {
+//        // case with x_exact = {1.0}
+//        for (int i=0; i<dimL; i++)
+//            sol2L[i] -= 1.0;
+//        beta = ddot (&dimL, sol2L, &IONE, sol2L, &IONE);            
+//    } 
     MPI_Allreduce (MPI_IN_PLACE, &beta, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
     beta = sqrt(beta);
