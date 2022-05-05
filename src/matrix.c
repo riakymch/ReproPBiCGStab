@@ -108,8 +108,9 @@ void generate_Poisson3D_filled(ptr_SparseMatrix A, const int p, const int stenci
 	const int    *stenc_c;
 	const double *stenc_v;
 
+    double eps = 0.0001;
 	const int    stenc_c7[]  = { -p2,  -p,  -1,   0,   1,   p,  p2};
-	const double stenc_v7[]  = { -1.0, -1.0, -1.0, 6.0, -1.0, -1.0, -1.0};
+	const double stenc_v7[]  = { -1.0, -1.0, -1.0, 6.0, -(1.0-eps), -(1.0-eps), -(1.0-eps)};
 
 	const double r = 1.0;
 	const int    stenc_c19[] =
@@ -133,9 +134,9 @@ void generate_Poisson3D_filled(ptr_SparseMatrix A, const int p, const int stenci
 	};
 	const double stenc_v27[] =
 	{
-		  -(2+r),  -(8-10*r),    -(2+r),  -(8-10*r),   -(100*r-40),  -(8-10*r),    -(2+r),  -(8-10*r),    -(2+r),
-		-(20-2*r), -(80-20*r), -(20-2*r), -(80-20*r), -(-400-200*r), -(80-20*r), -(20-2*r), -(80-20*r), -(20-2*r),
-		   -(2+r),  -(8-10*r),    -(2+r),  -(8-10*r),   -(100*r-40),  -(8-10*r),    -(2+r),  -(8-10*r),    -(2+r)
+		  -(2+r),  -(8-10*r),    -(2+r),  -(8-10*r),   -(100*r-40),  -(8-10*r+eps),    -(2+r-eps),  -(8-10*r+eps),    -(2+r-eps),
+		-(20-2*r), -(80-20*r), -(20-2*r), -(80-20*r), -(-400-200*r), -(80-20*r+eps), -(20-2*r+eps), -(80-20*r+eps), -(20-2*r+eps),
+		   -(2+r),  -(8-10*r),    -(2+r),  -(8-10*r),   -(100*r-40-eps),  -(8-10*r+eps),    -(2+r-eps),  -(8-10*r+eps),    -(2+r-eps)
 	};
 
 	if( stencil_points == 7 )
