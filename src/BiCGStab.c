@@ -428,7 +428,6 @@ int main (int argc, char **argv) {
     CreateDoubles (&sol1L, dimL);
     CreateDoubles (&sol2L, dimL);
 
-    InitDoubles (sol1, dim, 0.0, 0.0);
     InitDoubles (sol2, dim, 0.0, 0.0);
     InitDoubles (sol1L, dimL, 0.0, 0.0);
     InitDoubles (sol2L, dimL, 0.0, 0.0);
@@ -439,9 +438,12 @@ int main (int argc, char **argv) {
     double beta = 1.0 / sqrt(dim);
     if(mat_from_file) {
         // compute b = A * x_c, x_c = 1/sqrt(nbrows)
+        InitDoubles (sol1, dim, 1.0, 0.0);
         ProdSparseMatrixVectorByRows (matL, 0, sol1, sol1L);            			// s = A * x
         dscal (&dimL, &beta, sol1L, &IONE);                                         // s = beta * s
     } else {
+        InitDoubles (sol1, dim, 0.0, 0.0);
+
         int k=0;
         int *vptrM = matL.vptr;
         for (int i=0; i < matL.dim1; i++) {
