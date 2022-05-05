@@ -17,7 +17,7 @@
 // ================================================================================
 
 #define DIRECT_ERROR 0
-#define PRECOND 0
+#define PRECOND 1
 #define VECTOR_OUTPUT 0
 
 void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, int myId) {
