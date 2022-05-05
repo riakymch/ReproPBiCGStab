@@ -20,7 +20,7 @@
 // ================================================================================
 
 #define DIRECT_ERROR 0
-#define PRECOND 0
+#define PRECOND 1
 #define VECTOR_OUTPUT 0
 
 void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, int myId) {
@@ -39,7 +39,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #endif
 
     MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
-    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-6;
+    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-8;
     CreateDoubles (&s, n_dist);
     CreateDoubles (&q, n_dist);
     CreateDoubles (&r, n_dist);
@@ -363,8 +363,8 @@ int main (int argc, char **argv) {
         generate_Poisson3D_filled(&matL, size_param, stencil_points, band_width, dspL, dimL, dim);
 
         // To generate ill-conditioned matrices
-        double factor = 1.0e6;
-        ScaleFirstRowCol(matL, dspL, dimL, myId, root, factor);
+//        double factor = 1.0e6;
+//        ScaleFirstRowCol(matL, dspL, dimL, myId, root, factor);
     }
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -373,7 +373,7 @@ int main (int argc, char **argv) {
     CreateDoubles (&sol2, dim);
     CreateDoubles (&sol1L, dimL);
     CreateDoubles (&sol2L, dimL);
-    InitDoubles (sol1, dim, 1.0, 0.0);
+
     InitDoubles (sol2, dim, 0.0, 0.0);
     InitDoubles (sol1L, dimL, 0.0, 0.0);
     InitDoubles (sol2L, dimL, 0.0, 0.0);
@@ -381,47 +381,58 @@ int main (int argc, char **argv) {
     /***************************************/
 
     int IONE = 1;
-//    for (int i=0; i < matL.dim1; i++) {
-//        for(int j=vptrM[i]; j<vptrM[i+1]; j++) {
-//            sol1L[k] += matL.vval[j];
-//        }
-//    }
-
-    // compute b = A * x_c, x_c = 1/sqrt(nbrows)
     double beta = 1.0 / sqrt(dim);
-    ProdSparseMatrixVectorByRows (matL, 0, sol1, sol1L);            			// s = A * x
-    dscal (&dimL, &beta, sol1L, &IONE);                                         // s = beta * s
+    if(mat_from_file) {
+        // compute b = A * x_c, x_c = 1/sqrt(nbrows)
+        InitDoubles (sol1, dim, 1.0, 0.0);
+        ProdSparseMatrixVectorByRows (matL, 0, sol1, sol1L);            			// s = A * x
+        dscal (&dimL, &beta, sol1L, &IONE);                                         // s = beta * s
+    } else {
+        InitDoubles (sol1, dim, 0.0, 0.0);
+
+        int k=0;
+        int *vptrM = matL.vptr;
+        for (int i=0; i < matL.dim1; i++) {
+            for(int j=vptrM[i]; j<vptrM[i+1]; j++) {
+                sol1L[k] += matL.vval[j];
+            }
+        }
+    }
 
     MPI_Scatterv (sol2, vdimL, vdspL, MPI_DOUBLE, sol2L, dimL, MPI_DOUBLE, root, MPI_COMM_WORLD);
 
     BiCGStab (matL, sol2L, sol1L, vdimL, vdspL, myId);
 
     // Error computation ||b-Ax||
-    // case with x_exact = {1.0}
-//    for (i=0; i<dimL; i++)
-//        sol2L[i] -= 1.0;
-//    beta = ddot (&dimL, sol2L, &IONE, sol2L, &IONE);            
-    MPI_Allgatherv (sol2L, dimL, MPI_DOUBLE, sol2, vdimL, vdspL, MPI_DOUBLE, MPI_COMM_WORLD);
-    InitDoubles (sol2L, dimL, 0, 0);
-    ProdSparseMatrixVectorByRows (matL, 0, sol2, sol2L);
-    double DMONE = -1.0;
-    daxpy (&dimL, &DMONE, sol2L, &IONE, sol1L, &IONE);          
+//    if(mat_from_file) {
+        MPI_Allgatherv (sol2L, dimL, MPI_DOUBLE, sol2, vdimL, vdspL, MPI_DOUBLE, MPI_COMM_WORLD);
+        InitDoubles (sol2L, dimL, 0, 0);
+        ProdSparseMatrixVectorByRows (matL, 0, sol2, sol2L);
+        double DMONE = -1.0;
+        daxpy (&dimL, &DMONE, sol2L, &IONE, sol1L, &IONE);          
 
-    // ReproAllReduce -- Begin
-    std::vector<int64_t> h_superacc(exblas::BIN_COUNT);
-    exblas::cpu::exdot (dimL, sol1L, sol1L, &h_superacc[0]);
-    int imin=exblas::IMIN, imax=exblas::IMAX;
-    exblas::cpu::Normalize(&h_superacc[0], imin, imax);
-    if (myId == 0) {
-        MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-    } else {
-        MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-    }
-    if (myId == 0) {
-        beta = exblas::cpu::Round( &h_superacc[0] );
-    }
-    MPI_Bcast(&beta, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    // ReproAllReduce -- End
+        // ReproAllReduce -- Begin
+        std::vector<int64_t> h_superacc(exblas::BIN_COUNT);
+        exblas::cpu::exdot (dimL, sol1L, sol1L, &h_superacc[0]);
+        int imin=exblas::IMIN, imax=exblas::IMAX;
+        exblas::cpu::Normalize(&h_superacc[0], imin, imax);
+        if (myId == 0) {
+            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+        } else {
+            MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+        }
+        if (myId == 0) {
+            beta = exblas::cpu::Round( &h_superacc[0] );
+        }
+        MPI_Bcast(&beta, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        // ReproAllReduce -- End
+        
+//    } else {
+//        // case with x_exact = {1.0}
+//        for (int i=0; i<dimL; i++)
+//            sol2L[i] -= 1.0;
+//        beta = ddot (&dimL, sol2L, &IONE, sol2L, &IONE);            
+//    } 
 
     beta = sqrt(beta);
     if (myId == 0) 
