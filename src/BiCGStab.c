@@ -86,8 +86,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     // compute tolerance and <r0,r0>
     rho = ddot (&n_dist, r, &IONE, r, &IONE);                           // tol = r' * r
     MPI_Allreduce (MPI_IN_PLACE, &rho, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-    if (myId == 0)
-        printf("rho0 = %20.10e\n", rho);
     tol0 = sqrt (rho);
     tol = tol0;
 
