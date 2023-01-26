@@ -20,13 +20,14 @@
 #define PRECOND 1
 #define VECTOR_OUTPUT 0
 
-void BiCGStab(SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, int myId) {
+void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, int myId) {
     int size = mat.dim2, sizeR = mat.dim1; 
     int IONE = 1; 
     double DONE = 1.0, DMONE = -1.0, DZERO = 0.0;
     int n, n_dist, iter, maxiter, nProcs;
     double beta, tol, tol0, alpha, umbral, rho, omega, tmp;
     double *s = NULL, *q = NULL, *r = NULL, *p = NULL, *r0 = NULL, *y = NULL, *p_hat = NULL, *q_hat = NULL;
+    double *r_hat = NULL, *z = NULL, *t = NULL, *z_hat = NULL, *w = NULL, *w_hat = NULL, *s_hat = NULL, *v = NULL;
     double *aux = NULL;
     double t1, t2, t3, t4;
     double reduce[2];
@@ -43,6 +44,10 @@ void BiCGStab(SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, in
     CreateDoubles (&r0, n_dist);
     CreateDoubles (&p, n_dist);
     CreateDoubles (&y, n_dist);
+    CreateDoubles (&z, n_dist);
+    CreateDoubles (&w, n_dist);
+    CreateDoubles (&t, n_dist);
+    CreateDoubles (&v, n_dist);
 #if DIRECT_ERROR
     // init exact solution
     double *res_err = NULL, *x_exact = NULL;
@@ -55,6 +60,10 @@ void BiCGStab(SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, in
     CreateInts (&posd, n_dist);
     CreateDoubles (&p_hat, n_dist);
     CreateDoubles (&q_hat, n_dist);
+    CreateDoubles (&r_hat, n_dist);
+    CreateDoubles (&w_hat, n_dist);
+    CreateDoubles (&s_hat, n_dist);
+    CreateDoubles (&z_hat, n_dist);
     CreateDoubles (&diags, n_dist);
     GetDiagonalSparseMatrix2 (mat, dspls[myId], diags, posd);
 #pragma omp parallel for
@@ -73,21 +82,54 @@ void BiCGStab(SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, in
     }
 #endif
 
-    iter = 0;
+    // r0 = b - Ax0
     MPI_Allgatherv (x, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
     InitDoubles (s, sizeR, DZERO, DZERO);
     ProdSparseMatrixVectorByRows (mat, 0, aux, s);            			// s = A * x
     dcopy (&n_dist, b, &IONE, r, &IONE);                                // r = b
     daxpy (&n_dist, &DMONE, s, &IONE, r, &IONE);                        // r -= s
 
-    dcopy (&n_dist, r, &IONE, p, &IONE);                                // p = r
-    dcopy (&n_dist, r, &IONE, r0, &IONE);                               // r0 = r
+    // w0 = A * r0 
+#if PRECOND
+    VvecDoubles (DONE, diags, r, DZERO, r_hat, n_dist);                 // r_hat = D^-1 * r
+#else
+    r_hat = r;
+#endif
+    MPI_Allgatherv (r_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
+    InitDoubles (w, sizeR, DZERO, DZERO);
+    ProdSparseMatrixVectorByRows (mat, 0, aux, w);            			// w = A * r_hat
 
-    // compute tolerance and <r0,r0>
-    rho = ddot (&n_dist, r, &IONE, r, &IONE);                           // tol = r' * r
-    MPI_Allreduce (MPI_IN_PLACE, &rho, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-    tol0 = sqrt (rho);
+    // t0 = A * w0 
+#if PRECOND
+    VvecDoubles (DONE, diags, w, DZERO, w_hat, n_dist);                 // w_hat = D^-1 * w
+#else
+    w_hat = w;
+#endif
+    MPI_Allgatherv (w_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
+    InitDoubles (t, sizeR, DZERO, DZERO);
+    ProdSparseMatrixVectorByRows (mat, 0, aux, t);            			// t = A * w_hat
+
+    dcopy (&n_dist, r, &IONE, r0, &IONE);                               // r0 = r
+    dcopy (&n_dist, r, &IONE, p, &IONE);                                // p = r
+    dcopy (&n_dist, w, &IONE, s, &IONE);                                // s = w
+    dcopy (&n_dist, t, &IONE, z, &IONE);                                // z = t
+    dcopy (&n_dist, r, &IONE, q, &IONE);                                // q = r
+    dcopy (&n_dist, w, &IONE, y, &IONE);                                // y = w
+
+    // compute tolerance, <r0,r0>, and <r0, w0>
+    // alpha = (r0, r0) / (r0, w0)
+    reduce[0] = ddot (&n_dist, r, &IONE, r, &IONE);                     // tol = r0' * r0
+    reduce[1] = ddot (&n_dist, r, &IONE, w, &IONE);                     // tol = r0' * w0
+    MPI_Allreduce(MPI_IN_PLACE, reduce, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    rho = reduce[0];
+    alpha = rho / reduce[1];
+    tol0 = sqrt(rho);
     tol = tol0;
+
+    // beta = 0
+    beta = 0.0;
+    // omeg = 0
+    omega = 0.0;
 
 #if DIRECT_ERROR
     // compute direct error
@@ -109,16 +151,8 @@ void BiCGStab(SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, in
     if (myId == 0) 
         reloj (&t1, &t2);
 
+    iter = 0;
     while ((iter < maxiter) && (tol > umbral)) {
-
-#if PRECOND
-        VvecDoubles (DONE, diags, p, DZERO, p_hat, n_dist);              // p_hat = D^-1 * p
-#else
-        p_hat = p;
-#endif
-        MPI_Allgatherv (p_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
-        InitDoubles (s, sizeR, DZERO, DZERO);
-        ProdSparseMatrixVectorByRows (mat, 0, aux, s);            	    // s = A * p
 
         if (myId == 0) 
 #if DIRECT_ERROR
@@ -127,23 +161,33 @@ void BiCGStab(SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, in
         printf ("%d \t %a \n", iter, tol);
 #endif // DIRECT_ERROR
 
-        alpha = ddot (&n_dist, r0, &IONE, s, &IONE);                    // alpha = <r_0, r_iter> / <r_0, s>
-        MPI_Allreduce (MPI_IN_PLACE, &alpha, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        alpha = rho / alpha;
+        // p = r + beta-1 * (p-1 - omega-1 * s-1)
+        tmp = -omega; 
+        daxpy (&n_dist, &tmp, s, &IONE, p, &IONE);                     // p -= omega * s
+        dscal (&n_dist, &beta, p, &IONE);                              // p = beta * p
+        daxpy (&n_dist, &DONE, r, &IONE, p, &IONE);                    // p += r
 
+        // s = w + beta-1 * (s-1 - omega-1 * z-1)
+        tmp = -omega; 
+        daxpy (&n_dist, &tmp, z, &IONE, s, &IONE);                     // s -= omega * z
+        dscal (&n_dist, &beta, s, &IONE);                              // s = beta * s
+        daxpy (&n_dist, &DONE, w, &IONE, s, &IONE);                    // s += w
+
+        // z = t + beta-1 * (z-1 - omega-1 * v-1)
+        tmp = -omega; 
+        daxpy (&n_dist, &tmp, v, &IONE, z, &IONE);                     // z -= omega * v
+        dscal (&n_dist, &beta, z, &IONE);                              // z = beta * z
+        daxpy (&n_dist, &DONE, t, &IONE, z, &IONE);                    // z += t
+
+        // q = r - alpha * s 
         dcopy (&n_dist, r, &IONE, q, &IONE);                            // q = r
         tmp = -alpha;
         daxpy (&n_dist, &tmp, s, &IONE, q, &IONE);                      // q = r - alpha * s;
 
-        // second spmv
-#if PRECOND
-        VvecDoubles (DONE, diags, q, DZERO, q_hat, n_dist);             // q_hat = D^-1 * q
-#else
-        q_hat = q;
-#endif
-        MPI_Allgatherv (q_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
-        InitDoubles (y, sizeR, DZERO, DZERO);
-        ProdSparseMatrixVectorByRows (mat, 0, aux, y);            		// y = A * q
+        // y = w - alpha * z 
+        dcopy (&n_dist, w, &IONE, y, &IONE);                            // y = w
+        tmp = -alpha;
+        daxpy (&n_dist, &tmp, z, &IONE, y, &IONE);                      // y = w - alpha * z;
 
         // omega = <q, y> / <y, y>
         reduce[0] = ddot (&n_dist, q, &IONE, y, &IONE);
@@ -151,32 +195,82 @@ void BiCGStab(SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, in
         MPI_Allreduce(MPI_IN_PLACE, reduce, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         omega = reduce[0] / reduce[1];
 
+#if PRECOND
+        VvecDoubles (DONE, diags, z, DZERO, z_hat, n_dist);              // z_hat = D^-1 * z
+
+        // p_hat = r_hat + beta-1 * (p_hat-1 - omega-1 * s_hat-1)
+        tmp = -omega; 
+        daxpy (&n_dist, &tmp, s_hat, &IONE, p_hat, &IONE);               // p_hat -= omega * s_hat
+        dscal (&n_dist, &beta, p_hat, &IONE);                            // p_hat = beta * p_hat
+        daxpy (&n_dist, &DONE, r_hat, &IONE, p_hat, &IONE);              // p_hat += r_hat
+
+        // s_hat = w_hat + beta-1 * (s_hat-1 - omega-1 * z_hat-1)
+        tmp = -omega; 
+        daxpy (&n_dist, &tmp, z_hat, &IONE, s_hat, &IONE);               // s_hat -= omega * z_hat
+        dscal (&n_dist, &beta, s_hat, &IONE);                            // s_hat = beta * s_hat
+        daxpy (&n_dist, &DONE, w_hat, &IONE, s_hat, &IONE);              // s_hat += w_hat
+
+        // q_hat = r_hat - alpha * s_hat 
+        dcopy (&n_dist, r_hat, &IONE, q_hat, &IONE);                     // q_hat = r_hat
+        tmp = -alpha;
+        daxpy (&n_dist, &tmp, s_hat, &IONE, q_hat, &IONE);               // q_hat = q_hat - alpha * s_hat;
+#else
+        z_hat = z;
+#endif
+        MPI_Allgatherv (z_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
+        InitDoubles (v, sizeR, DZERO, DZERO);
+        ProdSparseMatrixVectorByRows (mat, 0, aux, v);            	    // v = A * z_hat
+
         // x+1 = x + alpha * p + omega * q
-        daxpy (&n_dist, &alpha, p_hat, &IONE, x, &IONE); 
-        daxpy (&n_dist, &omega, q_hat, &IONE, x, &IONE); 
+        daxpy (&n_dist, &alpha, p, &IONE, x, &IONE); 
+        daxpy (&n_dist, &omega, q, &IONE, x, &IONE); 
 
         // r+1 = q - omega * y
         dcopy (&n_dist, q, &IONE, r, &IONE);                            // r = q
         tmp = -omega;
         daxpy (&n_dist, &tmp, y, &IONE, r, &IONE);                      // r = q - omega * y;
-        
-        // rho = <r0, r+1> and tolerance
-        // cannot just use <r0, r> as the stopping criteria since it slows the convergence compared to <r, r>
-        reduce[0] = ddot (&n_dist, r0, &IONE, r, &IONE);
-        reduce[1] = ddot (&n_dist, r, &IONE, r, &IONE);
-        MPI_Allreduce (MPI_IN_PLACE, reduce, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        tmp = reduce[0];
-        tol = sqrt (reduce[1]) / tol0;
+       
+        // w+1 = y - omega * (t - alpha * v)
+        dcopy (&n_dist, t, &IONE, w, &IONE);                            // w = t
+        tmp = -alpha; 
+        daxpy (&n_dist, &tmp, v, &IONE, w, &IONE);                      // w -= alpha * v
+        tmp = -omega; 
+        dscal (&n_dist, &tmp, w, &IONE);                               // w = -omega * w
+        daxpy (&n_dist, &DONE, y, &IONE, w, &IONE);                     // w += y
+
+        // t = A w
+#if PRECOND
+        VvecDoubles (DONE, diags, w, DZERO, w_hat, n_dist);             // w_hat = D^-1 * w
+       
+        // r_hat+1 = q_hat - omega * (w_hat - alpha * z_hat)
+        dcopy (&n_dist, w_hat, &IONE, r_hat, &IONE);                    // r_hat = w_hat
+        tmp = -alpha; 
+        daxpy (&n_dist, &tmp, z, &IONE, r_hat, &IONE);                  // r_hat -= alpha * z
+        tmp = -omega; 
+        dscal (&n_dist, &tmp, r_hat, &IONE);                            // r_hat = -omega * r_hat
+        daxpy (&n_dist, &DONE, q, &IONE, r_hat, &IONE);                 // r_hat += y
+#else
+        w_hat = w;
+#endif
+        MPI_Allgatherv (w_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
+        InitDoubles (t, sizeR, DZERO, DZERO);
+        ProdSparseMatrixVectorByRows (mat, 0, aux, t);            	    // t = A * w
 
         // beta = (alpha / omega) * <r0, r+1> / <r0, r>
+        // rho = <r0, r+1> and tolerance
+        reduce[0] = ddot(&n_dist, r0, &IONE, r, &IONE);
+        reduce[1] = ddot(&n_dist, r0, &IONE, w, &IONE);
+        reduce[2] = ddot(&n_dist, r0, &IONE, s, &IONE);
+        reduce[3] = ddot(&n_dist, r0, &IONE, z, &IONE);
+        reduce[4] = ddot(&n_dist, r, &IONE, r, &IONE);
+        MPI_Allreduce (MPI_IN_PLACE, reduce, 5, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        tmp = reduce[0];
+        tol = sqrt(reduce[4]) / tol0;
         beta = (alpha / omega) * (tmp / rho);
         rho = tmp;
-       
-        // p+1 = r+1 + beta * (p - omega * s)
-        tmp = -omega; 
-        daxpy (&n_dist, &tmp, s, &IONE, p, &IONE);                     // p -= omega * s
-        dscal (&n_dist, &beta, p, &IONE);                              // p = beta * p
-        daxpy (&n_dist, &DONE, r, &IONE, p, &IONE);                    // p += r
+
+        // alpha = <r0, r+1> / (<r0, w+1> + beta <r0, s> - beta omega <r0, z>)
+        alpha = rho / (reduce[1] + beta * (reduce[2] - omega * reduce[3]));
 
 #if DIRECT_ERROR
         // compute direct error
