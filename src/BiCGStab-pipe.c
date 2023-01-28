@@ -222,28 +222,30 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         daxpy (&n_dist, &tmp, z, &IONE, y, &IONE);                      // y = w - alpha * z;
 
         // omega = <q, y> / <y, y>
-        exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, q, y, &fpe[0]);
-        exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, y, y, &fpe1[0]);
-        // ReproAllReduce -- Begin
-        // merge two fpes
-        for (int i = 0; i < NBFPE; i++) { 
-            fpe[NBFPE + i] = fpe1[i];
-        }
-        if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &fpe[0], 2*NBFPE, MPI_DOUBLE, Op5, 0, MPI_COMM_WORLD);
-        } else {
-            MPI_Reduce (&fpe[0], NULL, 2*NBFPE, MPI_DOUBLE, Op5, 0, MPI_COMM_WORLD);
-        }
-        if (myId == 0) {
-            // split two fpes
-            for (int i = 0; i < NBFPE; i++) { 
-                fpe1[i] = fpe[NBFPE + i];
-            }
-            reduce[0] = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
-            reduce[1] = exblas::cpu::Round<double, NBFPE> (&fpe1[0]);
-        }
-        MPI_Bcast(reduce, 2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        // ReproAllReduce -- End
+		exblas::cpu::exdot (n_dist, q, y, &h_superacc[0]);
+		exblas::cpu::exdot (n_dist, y, y, &h_superacc_1[0]);
+		// ReproAllReduce -- Begin
+		exblas::cpu::Normalize(&h_superacc[0], imin, imax);
+		exblas::cpu::Normalize(&h_superacc_1[0], imin, imax);
+		// merge two superaccs into one for reduction
+		for (int i = 0; i < exblas::BIN_COUNT; i++) {
+			h_superacc[exblas::BIN_COUNT + i] = h_superacc_1[i]; 
+		} 
+		if (myId == 0) {
+			MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+		} else {
+			MPI_Reduce (&h_superacc[0], NULL, 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+		}
+		if (myId == 0) {
+			// split them back
+			for (int i = 0; i < exblas::BIN_COUNT; i++) {
+				h_superacc_1[i] = h_superacc[exblas::BIN_COUNT + i]; 
+			} 
+			reduce[0] = exblas::cpu::Round( &h_superacc[0] );
+			reduce[1] = exblas::cpu::Round( &h_superacc_1[0] );
+		}
+		MPI_Bcast(reduce, 2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		// ReproAllReduce -- End
         omega = reduce[0] / reduce[1];
 
 #if PRECOND
@@ -309,38 +311,43 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
         // beta = (alpha / omega) * <r0, r+1> / <r0, r>
         // rho = <r0, r+1> and tolerance
-        exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, r0, r, &fpe[0]);
-        exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, r0, w, &fpe1[0]);
-        exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, r0, s, &fpe2[0]);
-        exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, r0, z, &fpe3[0]);
-        exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, r, r, &fpe4[0]);
-        // ReproAllReduce -- Begin
-        // merge two fpes
-        for (int i = 0; i < NBFPE; i++) { 
-            fpe[NBFPE + i] = fpe1[i];
-            fpe[2*NBFPE + i] = fpe2[i];
-            fpe[3*NBFPE + i] = fpe3[i];
-            fpe[4*NBFPE + i] = fpe4[i];
-        }
-        if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &fpe[0], 5*NBFPE, MPI_DOUBLE, Op5, 0, MPI_COMM_WORLD);
-        } else {
-            MPI_Reduce (&fpe[0], NULL, 5*NBFPE, MPI_DOUBLE, Op5, 0, MPI_COMM_WORLD);
-        }
-        if (myId == 0) {
-            // split two fpes
-            for (int i = 0; i < NBFPE; i++) { 
-                fpe1[i] = fpe[NBFPE + i];
-                fpe2[i] = fpe[2*NBFPE + i];
-                fpe3[i] = fpe[3*NBFPE + i];
-                fpe4[i] = fpe[4*NBFPE + i];
-            }
-            reduce[0] = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
-            reduce[1] = exblas::cpu::Round<double, NBFPE> (&fpe1[0]);
-            reduce[2] = exblas::cpu::Round<double, NBFPE> (&fpe2[0]);
-            reduce[3] = exblas::cpu::Round<double, NBFPE> (&fpe3[0]);
-            reduce[4] = exblas::cpu::Round<double, NBFPE> (&fpe4[0]);
-        }
+		exblas::cpu::exdot (n_dist, r0, r, &h_superacc[0]);
+		exblas::cpu::exdot (n_dist, r0, w, &h_superacc_1[0]);
+		exblas::cpu::exdot (n_dist, r0, s, &h_superacc_2[0]);
+		exblas::cpu::exdot (n_dist, r0, z, &h_superacc_3[0]);
+		exblas::cpu::exdot (n_dist, r, r, &h_superacc_4[0]);
+		// ReproAllReduce -- Begin
+		exblas::cpu::Normalize(&h_superacc[0], imin, imax);
+		exblas::cpu::Normalize(&h_superacc_1[0], imin, imax);
+		exblas::cpu::Normalize(&h_superacc_2[0], imin, imax);
+		exblas::cpu::Normalize(&h_superacc_3[0], imin, imax);
+		exblas::cpu::Normalize(&h_superacc_4[0], imin, imax);
+		// merge two superaccs into one for reduction
+		for (int i = 0; i < exblas::BIN_COUNT; i++) {
+			h_superacc[exblas::BIN_COUNT + i] = h_superacc_1[i]; 
+			h_superacc[2*exblas::BIN_COUNT + i] = h_superacc_2[i]; 
+			h_superacc[3*exblas::BIN_COUNT + i] = h_superacc_3[i]; 
+			h_superacc[4*exblas::BIN_COUNT + i] = h_superacc_4[i]; 
+		} 
+		if (myId == 0) {
+			MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], 5*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+		} else {
+			MPI_Reduce (&h_superacc[0], NULL, 5*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
+		}
+		if (myId == 0) {
+			// split them back
+			for (int i = 0; i < exblas::BIN_COUNT; i++) {
+				h_superacc_1[i] = h_superacc[exblas::BIN_COUNT + i]; 
+				h_superacc_2[i] = h_superacc[2*exblas::BIN_COUNT + i]; 
+				h_superacc_3[i] = h_superacc[3*exblas::BIN_COUNT + i]; 
+				h_superacc_4[i] = h_superacc[4*exblas::BIN_COUNT + i]; 
+			} 
+			reduce[0] = exblas::cpu::Round( &h_superacc[0] );
+			reduce[1] = exblas::cpu::Round( &h_superacc_1[0] );
+			reduce[2] = exblas::cpu::Round( &h_superacc_2[0] );
+			reduce[3] = exblas::cpu::Round( &h_superacc_3[0] );
+			reduce[4] = exblas::cpu::Round( &h_superacc_4[0] );
+		}
         MPI_Bcast(reduce, 5, MPI_DOUBLE, 0, MPI_COMM_WORLD);
         // ReproAllReduce -- End
         tmp = reduce[0];
@@ -391,9 +398,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         printf ("Time_loop: %20.10e\n", (t3-t1));
         printf ("Time_iter: %20.10e\n", (t3-t1)/iter);
     }
-
-    MPI_Op_free( &Op );
-    MPI_Op_free( &Op5 );
 
     RemoveDoubles (&aux); RemoveDoubles (&s); RemoveDoubles (&q); 
     RemoveDoubles (&r); RemoveDoubles (&p); RemoveDoubles (&r0); RemoveDoubles (&y);
@@ -519,21 +523,18 @@ int main (int argc, char **argv) {
         double DMONE = -1.0;
         daxpy (&dimL, &DMONE, sol2L, &IONE, sol1L, &IONE);                          // r -= s
 
-        std::vector<double> fpe(NBFPE);
-        exblas::cpu::exdot<double*, double*, NBFPE> (dimL, sol1L, sol1L, &fpe[0]);
-
+        std::vector<int64_t> h_superacc(exblas::BIN_COUNT);
+        exblas::cpu::exdot (dimL, sol1L, sol1L, &h_superacc[0]);
         // ReproAllReduce -- Begin
-        // user-defined reduction operations
-        MPI_Op Op;
-        MPI_Op_create( (MPI_User_function *) fpeSum, 1, &Op ); 
+        int imin=exblas::IMIN, imax=exblas::IMAX;
+        exblas::cpu::Normalize(&h_superacc[0], imin, imax);
         if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
+            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
         } else {
-            MPI_Reduce (&fpe[0], NULL, NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
+            MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
         }
-        MPI_Op_free( &Op );
         if (myId == 0) {
-            beta = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
+            beta = exblas::cpu::Round( &h_superacc[0] );
         }
         MPI_Bcast(&beta, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
         // ReproAllReduce -- End
