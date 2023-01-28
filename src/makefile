@@ -52,7 +52,7 @@ OBJS = $(OBJS_CLOCK) $(OBJS_VECTOR) $(OBJS_SPARSE)
 
 # ============================================================
 
-default: libclock.a libvector.a libsparse.a BiCGStab
+default: libclock.a libvector.a libsparse.a BiCGStab BiCGStab-pipe
 
 libshared.a : $(OBJS)
 	$(AR) $(ARFLAGS) $@ $?
@@ -73,6 +73,9 @@ libsparse.a : $(OBJS_SPARSE)
 BiCGStab: BiCGStab.o ToolsMPI.o matrix.o 
 	$(CLINKER) $(LDFLAGS) -o BiCGStab BiCGStab.o ToolsMPI.o matrix.o $(LIBMKL) $(LIBLIST)
 
+BiCGStab-pipe: BiCGStab-pipe.o ToolsMPI.o matrix.o 
+	$(CLINKER) $(LDFLAGS) -o BiCGStab-pipe BiCGStab-pipe.o ToolsMPI.o matrix.o $(LIBMKL) $(LIBLIST)
+
 # ============================================================
 
 .c.o:
@@ -80,6 +83,6 @@ BiCGStab: BiCGStab.o ToolsMPI.o matrix.o
 	$(CC) $(CFLAGS) -c $*.c
 
 clean:
-	rm -f *.o *.a BiCGStab
+	rm -f *.o *.a BiCGStab BiCGStab-pipe
 
 # ============================================================
