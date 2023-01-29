@@ -30,7 +30,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     double *r_hat = NULL, *z = NULL, *t = NULL, *z_hat = NULL, *w = NULL, *w_hat = NULL, *s_hat = NULL, *v = NULL;
     double *aux = NULL;
     double t1, t2, t3, t4;
-    double reduce[2];
+    double reduce[5];
 #if PRECOND
     int i, *posd = NULL;
     double *diags = NULL;
@@ -314,9 +314,12 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
     RemoveDoubles (&aux); RemoveDoubles (&s); RemoveDoubles (&q); 
     RemoveDoubles (&r); RemoveDoubles (&p); RemoveDoubles (&r0); RemoveDoubles (&y);
+    RemoveDoubles (&z); RemoveDoubles (&w); RemoveDoubles (&t); RemoveDoubles (&v);
 #if PRECOND
     RemoveDoubles (&diags); RemoveInts (&posd);
     RemoveDoubles(&p_hat); RemoveDoubles (&q_hat); 
+    RemoveDoubles(&r_hat); RemoveDoubles (&w_hat); 
+    RemoveDoubles(&s_hat); RemoveDoubles (&z_hat); 
 #endif
 }
 
