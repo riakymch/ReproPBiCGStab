@@ -83,6 +83,6 @@ BiCGStab-pipe: BiCGStab-pipe.o ToolsMPI.o matrix.o
 	$(CC) $(CFLAGS) -c $*.c
 
 clean:
-	rm -f *.o *.a BiCGStab
+	rm -f *.o *.a BiCGStab BiCGStab-pipe
 
 # ============================================================
