@@ -30,7 +30,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     int n, n_dist, iter, maxiter, nProcs;
     double beta, tol, tol0, alpha, umbral, rho, omega, tmp;
     double *s = NULL, *q = NULL, *r = NULL, *p = NULL, *r0 = NULL, *y = NULL, *p_hat = NULL, *q_hat = NULL;
-    double *r_hat = NULL, *z = NULL, *t = NULL, *z_hat = NULL, *w = NULL, *w_hat = NULL, *s_hat = NULL, *v = NULL;
+    double *r_hat = NULL, *z = NULL, *t = NULL, *z_hat = NULL, *w = NULL, *w_hat = NULL, *s_hat = NULL, *v = NULL, *tmpv = NULL;
     double *aux = NULL;
     double t1, t2, t3, t4;
     double reduce[5];
@@ -51,6 +51,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     CreateDoubles (&w, n_dist);
     CreateDoubles (&t, n_dist);
     CreateDoubles (&v, n_dist);
+    CreateDoubles (&tmpv, n_dist);
 #if DIRECT_ERROR
     // init exact solution
     double *res_err = NULL, *x_exact = NULL;
@@ -112,13 +113,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     InitDoubles (t, sizeR, DZERO, DZERO);
     ProdSparseMatrixVectorByRows (mat, 0, aux, t);            			// t = A * w_hat
 
-    dcopy (&n_dist, r, &IONE, r0, &IONE);                               // r0 = r
-    dcopy (&n_dist, r, &IONE, p, &IONE);                                // p = r
-    dcopy (&n_dist, w, &IONE, s, &IONE);                                // s = w
-    dcopy (&n_dist, t, &IONE, z, &IONE);                                // z = t
-    dcopy (&n_dist, r, &IONE, q, &IONE);                                // q = r
-    dcopy (&n_dist, w, &IONE, y, &IONE);                                // y = w
-
     // superaccs
     std::vector<int64_t> h_superacc(5 * exblas::BIN_COUNT);
     std::vector<int64_t> h_superacc_1(exblas::BIN_COUNT);
@@ -158,6 +152,11 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     tol0 = sqrt(rho);
     tol = tol0;
 
+    dcopy (&n_dist, r, &IONE, r0, &IONE);                               // r0 = r
+    dcopy (&n_dist, r, &IONE, p, &IONE);                                // p = r
+    dcopy (&n_dist, w, &IONE, s, &IONE);                                // s = w
+    dcopy (&n_dist, t, &IONE, z, &IONE);                                // z = t
+
     // beta = 0
     beta = 0.0;
     // omeg = 0
@@ -193,32 +192,70 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         printf ("%d \t %a \n", iter, tol);
 #endif // DIRECT_ERROR
 
-        // p = r + beta-1 * (p-1 - omega-1 * s-1)
+        // p_hat = r_hat + beta-1 * (p_hat-1 - omega-1 * s_hat-1)
+        dcopy (&n_dist, p_hat, &IONE, tmpv, &IONE);                    // tmpv = p_hat
+        dcopy (&n_dist, r_hat, &IONE, p_hat, &IONE);                   // p_hat = r_hat
         tmp = -omega; 
-        daxpy (&n_dist, &tmp, s, &IONE, p, &IONE);                     // p -= omega * s
-        dscal (&n_dist, &beta, p, &IONE);                              // p = beta * p
-        daxpy (&n_dist, &DONE, r, &IONE, p, &IONE);                    // p += r
+//        for (int jj = 0; jj < n_dist; jj++) {
+//            tmpv[jj] = fma(tmp, s_hat[jj], tmpv[jj]);
+//            p_hat[jj] = fma(beta, tmpv[jj], p_hat[jj]);
+//        }    
+        daxpy (&n_dist, &tmp, s_hat, &IONE, tmpv, &IONE);              // tmpv -= omega * s_hat
+        daxpy (&n_dist, &beta, tmpv, &IONE, p_hat, &IONE);             // p_hat += beta * tmpv
 
         // s = w + beta-1 * (s-1 - omega-1 * z-1)
         tmp = -omega; 
-        daxpy (&n_dist, &tmp, z, &IONE, s, &IONE);                     // s -= omega * z
-        dscal (&n_dist, &beta, s, &IONE);                              // s = beta * s
-        daxpy (&n_dist, &DONE, w, &IONE, s, &IONE);                    // s += w
+        dcopy (&n_dist, s, &IONE, tmpv, &IONE);                        // tmpv = s
+        dcopy (&n_dist, w, &IONE, s, &IONE);                           // s = w
+        tmp = -omega; 
+//        for (int jj = 0; jj < n_dist; jj++) {
+//            tmpv[jj] = fma(tmp, z[jj], tmpv[jj]);
+//            s[jj] = fma(beta, tmpv[jj], s[jj]);
+//        }
+        daxpy (&n_dist, &tmp, z, &IONE, tmpv, &IONE);                  // tmpv -= omega * z
+        daxpy (&n_dist, &beta, tmpv, &IONE, s, &IONE);                 // s += beta * tmpv
+
+        // s_hat = w_hat + beta-1 * (s_hat-1 - omega-1 * z_hat-1)
+        dcopy (&n_dist, s_hat, &IONE, tmpv, &IONE);                    // tmpv = s_hat
+        dcopy (&n_dist, w_hat, &IONE, s_hat, &IONE);                   // s_hat = w_hat
+        tmp = -omega; 
+//        for (int jj = 0; jj < n_dist; jj++) {
+//            tmpv[jj] = fma(tmp, z_hat[jj], tmpv[jj]);
+//            s_hat[jj] = fma(beta, tmpv[jj], s_hat[jj]);
+//        }
+        daxpy (&n_dist, &tmp, z_hat, &IONE, tmpv, &IONE);              // tmpv -= omega * z_hat
+        daxpy (&n_dist, &beta, tmpv, &IONE, s_hat, &IONE);             // s_hat += beta * tmpv
 
         // z = t + beta-1 * (z-1 - omega-1 * v-1)
+        dcopy (&n_dist, z, &IONE, tmpv, &IONE);                        // tmpv = z
+        dcopy (&n_dist, t, &IONE, z, &IONE);                           // z = t
         tmp = -omega; 
-        daxpy (&n_dist, &tmp, v, &IONE, z, &IONE);                     // z -= omega * v
-        dscal (&n_dist, &beta, z, &IONE);                              // z = beta * z
-        daxpy (&n_dist, &DONE, t, &IONE, z, &IONE);                    // z += t
+//        for (int jj = 0; jj < n_dist; jj++) {
+//            tmpv[jj] = fma(tmp, v[jj], tmpv[jj]);
+//            z[jj] = fma(beta, tmpv[jj], z[jj]);
+//        }
+        daxpy (&n_dist, &tmp, v, &IONE, tmpv, &IONE);                  // tmpv -= omega * v
+        daxpy (&n_dist, &beta, tmpv, &IONE, z, &IONE);                 // z += beta * tmpv
 
         // q = r - alpha * s 
         dcopy (&n_dist, r, &IONE, q, &IONE);                            // q = r
         tmp = -alpha;
+//        for (int jj = 0; jj < n_dist; jj++)
+//            q[jj] = fma(tmp, s[jj], q[jj]);
         daxpy (&n_dist, &tmp, s, &IONE, q, &IONE);                      // q = r - alpha * s;
+
+        // q_hat = r_hat - alpha * s_hat 
+        dcopy (&n_dist, r_hat, &IONE, q_hat, &IONE);                    // q_hat = r_hat
+        tmp = -alpha;
+//        for (int jj = 0; jj < n_dist; jj++)
+//            q_hat[jj] = fma(tmp, s_hat[jj], q_hat[jj]);
+        daxpy (&n_dist, &tmp, s_hat, &IONE, q_hat, &IONE);              // q_hat = q_hat - alpha * s_hat;
 
         // y = w - alpha * z 
         dcopy (&n_dist, w, &IONE, y, &IONE);                            // y = w
         tmp = -alpha;
+//        for (int jj = 0; jj < n_dist; jj++)
+//            y[jj] = fma(tmp, z[jj], y[jj]);
         daxpy (&n_dist, &tmp, z, &IONE, y, &IONE);                      // y = w - alpha * z;
 
         // omega = <q, y> / <y, y>
@@ -250,23 +287,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
 #if PRECOND
         VvecDoubles (DONE, diags, z, DZERO, z_hat, n_dist);              // z_hat = D^-1 * z
-
-        // p_hat = r_hat + beta-1 * (p_hat-1 - omega-1 * s_hat-1)
-        tmp = -omega; 
-        daxpy (&n_dist, &tmp, s_hat, &IONE, p_hat, &IONE);               // p_hat -= omega * s_hat
-        dscal (&n_dist, &beta, p_hat, &IONE);                            // p_hat = beta * p_hat
-        daxpy (&n_dist, &DONE, r_hat, &IONE, p_hat, &IONE);              // p_hat += r_hat
-
-        // s_hat = w_hat + beta-1 * (s_hat-1 - omega-1 * z_hat-1)
-        tmp = -omega; 
-        daxpy (&n_dist, &tmp, z_hat, &IONE, s_hat, &IONE);               // s_hat -= omega * z_hat
-        dscal (&n_dist, &beta, s_hat, &IONE);                            // s_hat = beta * s_hat
-        daxpy (&n_dist, &DONE, w_hat, &IONE, s_hat, &IONE);              // s_hat += w_hat
-
-        // q_hat = r_hat - alpha * s_hat 
-        dcopy (&n_dist, r_hat, &IONE, q_hat, &IONE);                     // q_hat = r_hat
-        tmp = -alpha;
-        daxpy (&n_dist, &tmp, s_hat, &IONE, q_hat, &IONE);               // q_hat = q_hat - alpha * s_hat;
 #else
         z_hat = z;
 #endif
@@ -274,34 +294,50 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         InitDoubles (v, sizeR, DZERO, DZERO);
         ProdSparseMatrixVectorByRows (mat, 0, aux, v);            	    // v = A * z_hat
 
-        // x+1 = x + alpha * p + omega * q
-        daxpy (&n_dist, &alpha, p, &IONE, x, &IONE); 
-        daxpy (&n_dist, &omega, q, &IONE, x, &IONE); 
+        // x+1 = x + alpha * p_hat + omega * q_hat
+//        for (int jj = 0; jj < n_dist; jj++) {
+//            x[jj] = fma(alpha, p_hat[jj], x[jj]);
+//            x[jj] = fma(omega, q_hat[jj], x[jj]);
+//        }
+        daxpy (&n_dist, &alpha, p_hat, &IONE, x, &IONE); 
+        daxpy (&n_dist, &omega, q_hat, &IONE, x, &IONE); 
 
         // r+1 = q - omega * y
         dcopy (&n_dist, q, &IONE, r, &IONE);                            // r = q
         tmp = -omega;
+//        for (int jj = 0; jj < n_dist; jj++)
+//            r[jj] = fma(tmp, y[jj], r[jj]);
         daxpy (&n_dist, &tmp, y, &IONE, r, &IONE);                      // r = q - omega * y;
        
-        // w+1 = y - omega * (t - alpha * v)
-        dcopy (&n_dist, t, &IONE, w, &IONE);                            // w = t
+        // r_hat+1 = q_hat - omega * (w_hat - alpha * z_hat)
+        dcopy (&n_dist, w_hat, &IONE, tmpv, &IONE);                     // tmpv = w_hat
+        dcopy (&n_dist, q_hat, &IONE, r_hat, &IONE);                    // r_hat = q_hat
         tmp = -alpha; 
-        daxpy (&n_dist, &tmp, v, &IONE, w, &IONE);                      // w -= alpha * v
+//        double tmpo = -omega; 
+//        for (int jj = 0; jj < n_dist; jj++) {
+//            tmpv[jj] = fma(tmp, z_hat[jj], tmpv[jj]);
+//            r_hat[jj] = fma(tmpo, tmpv[jj], r_hat[jj]);
+//        }
+        daxpy (&n_dist, &tmp, z_hat, &IONE, tmpv, &IONE);               // tmpv -= alpha * z_hat
         tmp = -omega; 
-        dscal (&n_dist, &tmp, w, &IONE);                               // w = -omega * w
-        daxpy (&n_dist, &DONE, y, &IONE, w, &IONE);                     // w += y
+        daxpy (&n_dist, &tmp, tmpv, &IONE, r_hat, &IONE);               // r_hat -= omega * tmpv
+       
+        // w+1 = y - omega * (t - alpha * v)
+        dcopy (&n_dist, t, &IONE, tmpv, &IONE);                         // tmpv = t
+        dcopy (&n_dist, y, &IONE, w, &IONE);                            // w = y
+        tmp = -alpha; 
+//        double tmpo = -omega; 
+//        for (int jj = 0; jj < n_dist; jj++) {
+//            tmpv[jj] = fma(tmp, v[jj], tmpv[jj]);
+//            w[jj] = fma(tmpo, tmpv[jj], w[jj]);
+//        }
+        daxpy (&n_dist, &tmp, v, &IONE, tmpv, &IONE);                   // tmpv -= alpha * v
+        tmp = -omega; 
+        daxpy (&n_dist, &tmp, tmpv, &IONE, w, &IONE);                   // w -= omega * tmpv
 
         // t = A w
 #if PRECOND
         VvecDoubles (DONE, diags, w, DZERO, w_hat, n_dist);             // w_hat = D^-1 * w
-       
-        // r_hat+1 = q_hat - omega * (w_hat - alpha * z_hat)
-        dcopy (&n_dist, w_hat, &IONE, r_hat, &IONE);                    // r_hat = w_hat
-        tmp = -alpha; 
-        daxpy (&n_dist, &tmp, z, &IONE, r_hat, &IONE);                  // r_hat -= alpha * z
-        tmp = -omega; 
-        dscal (&n_dist, &tmp, r_hat, &IONE);                            // r_hat = -omega * r_hat
-        daxpy (&n_dist, &DONE, q, &IONE, r_hat, &IONE);                 // r_hat += y
 #else
         w_hat = w;
 #endif
@@ -401,7 +437,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
     RemoveDoubles (&aux); RemoveDoubles (&s); RemoveDoubles (&q); 
     RemoveDoubles (&r); RemoveDoubles (&p); RemoveDoubles (&r0); RemoveDoubles (&y);
-    RemoveDoubles (&z); RemoveDoubles (&w); RemoveDoubles (&t); RemoveDoubles (&v);
+    RemoveDoubles (&z); RemoveDoubles (&w); RemoveDoubles (&t); RemoveDoubles (&v); RemoveDoubles (&tmpv);
 #if PRECOND
     RemoveDoubles (&diags); RemoveInts (&posd);
     RemoveDoubles(&p_hat); RemoveDoubles (&q_hat); 
