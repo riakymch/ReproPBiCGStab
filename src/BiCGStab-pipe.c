@@ -35,6 +35,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     int i, *posd = NULL;
     double *diags = NULL;
 #endif
+    MPI_Request request;
 
     MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
     n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-8;
@@ -206,8 +207,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         // omega = <q, y> / <y, y>
         reduce[0] = ddot (&n_dist, q, &IONE, y, &IONE);
         reduce[1] = ddot (&n_dist, y, &IONE, y, &IONE);
-        MPI_Allreduce(MPI_IN_PLACE, reduce, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        omega = reduce[0] / reduce[1];
+        MPI_Iallreduce(MPI_IN_PLACE, reduce, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD, &request);
 
 #if PRECOND
         VvecDoubles (DONE, diags, z, DZERO, z_hat, n_dist);             // z_hat = D^-1 * z
@@ -217,6 +217,10 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         MPI_Allgatherv (z_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
         InitDoubles (v, sizeR, DZERO, DZERO);
         ProdSparseMatrixVectorByRows (mat, 0, aux, v);            	    // v = A * z_hat
+
+        // wait for MPI_Iallreduce to complete
+        MPI_Wait(&request, MPI_STATUS_IGNORE);
+        omega = reduce[0] / reduce[1];
 
         // x+1 = x + alpha * p_hat + omega * q_hat
         daxpy (&n_dist, &alpha, p_hat, &IONE, x, &IONE); 
@@ -243,6 +247,15 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         tmp = -omega; 
         daxpy (&n_dist, &tmp, tmpv, &IONE, w, &IONE);                   // w -= omega * tmpv
 
+        // beta = (alpha / omega) * <r0, r+1> / <r0, r>
+        // rho = <r0, r+1> and tolerance
+        reduce[0] = ddot(&n_dist, r0, &IONE, r, &IONE);
+        reduce[1] = ddot(&n_dist, r0, &IONE, w, &IONE);
+        reduce[2] = ddot(&n_dist, r0, &IONE, s, &IONE);
+        reduce[3] = ddot(&n_dist, r0, &IONE, z, &IONE);
+        reduce[4] = ddot(&n_dist, r, &IONE, r, &IONE);
+        MPI_Iallreduce (MPI_IN_PLACE, reduce, 5, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD, &request);
+
         // t = A w
 #if PRECOND
         VvecDoubles (DONE, diags, w, DZERO, w_hat, n_dist);             // w_hat = D^-1 * w
@@ -253,14 +266,8 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         InitDoubles (t, sizeR, DZERO, DZERO);
         ProdSparseMatrixVectorByRows (mat, 0, aux, t);            	    // t = A * w
 
-        // beta = (alpha / omega) * <r0, r+1> / <r0, r>
-        // rho = <r0, r+1> and tolerance
-        reduce[0] = ddot(&n_dist, r0, &IONE, r, &IONE);
-        reduce[1] = ddot(&n_dist, r0, &IONE, w, &IONE);
-        reduce[2] = ddot(&n_dist, r0, &IONE, s, &IONE);
-        reduce[3] = ddot(&n_dist, r0, &IONE, z, &IONE);
-        reduce[4] = ddot(&n_dist, r, &IONE, r, &IONE);
-        MPI_Allreduce (MPI_IN_PLACE, reduce, 5, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        // wait for MPI_Iallreduce to complete
+        MPI_Wait(&request, MPI_STATUS_IGNORE);
         tmp = reduce[0];
         tol = sqrt(reduce[4]) / tol0;
         beta = (alpha / omega) * (tmp / rho);
@@ -311,7 +318,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
     RemoveDoubles (&aux); RemoveDoubles (&s); RemoveDoubles (&q); 
     RemoveDoubles (&r); RemoveDoubles (&p); RemoveDoubles (&r0); RemoveDoubles (&y);
-    RemoveDoubles (&z); RemoveDoubles (&w); RemoveDoubles (&t); RemoveDoubles (&v);
+    RemoveDoubles (&z); RemoveDoubles (&w); RemoveDoubles (&t); RemoveDoubles (&v); RemoveDoubles (&tmpv);
 #if PRECOND
     RemoveDoubles (&diags); RemoveInts (&posd);
     RemoveDoubles(&p_hat); RemoveDoubles (&q_hat); 
