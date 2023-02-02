@@ -38,6 +38,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     int i, *posd = NULL;
     double *diags = NULL;
 #endif
+    MPI_Request request;
 
     MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
     n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-8;
@@ -261,15 +262,8 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 		for (int i = 0; i < exblas::BIN_COUNT; i++) {
 			h_superacc[exblas::BIN_COUNT + i] = h_superacc_1[i]; 
 		} 
-        MPI_Allreduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
-        // split them back
-        for (int i = 0; i < exblas::BIN_COUNT; i++) {
-            h_superacc_1[i] = h_superacc[exblas::BIN_COUNT + i]; 
-        } 
-        reduce[0] = exblas::cpu::Round( &h_superacc[0] );
-        reduce[1] = exblas::cpu::Round( &h_superacc_1[0] );
+        MPI_Iallreduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD, &request);
         // ReproAllReduce -- End
-        omega = reduce[0] / reduce[1];
 
 #if PRECOND
         VvecDoubles (DONE, diags, z, DZERO, z_hat, n_dist);              // z_hat = D^-1 * z
@@ -279,6 +273,16 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         MPI_Allgatherv (z_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
         InitDoubles (v, sizeR, DZERO, DZERO);
         ProdSparseMatrixVectorByRows (mat, 0, aux, v);            	    // v = A * z_hat
+
+        // wait for MPI_Iallreduce to complete
+        MPI_Wait(&request, MPI_STATUS_IGNORE);
+        // split them back
+        for (int i = 0; i < exblas::BIN_COUNT; i++) {
+            h_superacc_1[i] = h_superacc[exblas::BIN_COUNT + i]; 
+        } 
+        reduce[0] = exblas::cpu::Round( &h_superacc[0] );
+        reduce[1] = exblas::cpu::Round( &h_superacc_1[0] );
+        omega = reduce[0] / reduce[1];
 
         // x+1 = x + alpha * p_hat + omega * q_hat
 //        for (int jj = 0; jj < n_dist; jj++) {
@@ -321,16 +325,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         tmp = -omega; 
         daxpy (&n_dist, &tmp, tmpv, &IONE, w, &IONE);                   // w -= omega * tmpv
 
-        // t = A w
-#if PRECOND
-        VvecDoubles (DONE, diags, w, DZERO, w_hat, n_dist);             // w_hat = D^-1 * w
-#else
-        w_hat = w;
-#endif
-        MPI_Allgatherv (w_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
-        InitDoubles (t, sizeR, DZERO, DZERO);
-        ProdSparseMatrixVectorByRows (mat, 0, aux, t);            	    // t = A * w
-
         // beta = (alpha / omega) * <r0, r+1> / <r0, r>
         // rho = <r0, r+1> and tolerance
 		exblas::cpu::exdot (n_dist, r0, r, &h_superacc[0]);
@@ -351,7 +345,21 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 			h_superacc[3*exblas::BIN_COUNT + i] = h_superacc_3[i]; 
 			h_superacc[4*exblas::BIN_COUNT + i] = h_superacc_4[i]; 
 		} 
-        MPI_Allreduce (MPI_IN_PLACE, &h_superacc[0], 5*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
+        MPI_Iallreduce (MPI_IN_PLACE, &h_superacc[0], 5*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD, &request);
+        // ReproAllReduce -- End
+
+        // t = A w
+#if PRECOND
+        VvecDoubles (DONE, diags, w, DZERO, w_hat, n_dist);             // w_hat = D^-1 * w
+#else
+        w_hat = w;
+#endif
+        MPI_Allgatherv (w_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
+        InitDoubles (t, sizeR, DZERO, DZERO);
+        ProdSparseMatrixVectorByRows (mat, 0, aux, t);            	    // t = A * w
+
+        // wait for MPI_Iallreduce to complete
+        MPI_Wait(&request, MPI_STATUS_IGNORE);
         // split them back
         for (int i = 0; i < exblas::BIN_COUNT; i++) {
             h_superacc_1[i] = h_superacc[exblas::BIN_COUNT + i]; 
@@ -364,7 +372,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         reduce[2] = exblas::cpu::Round( &h_superacc_2[0] );
         reduce[3] = exblas::cpu::Round( &h_superacc_3[0] );
         reduce[4] = exblas::cpu::Round( &h_superacc_4[0] );
-        // ReproAllReduce -- End
         tmp = reduce[0];
         tol = sqrt(reduce[4]) / tol0;
         beta = (alpha / omega) * (tmp / rho);
