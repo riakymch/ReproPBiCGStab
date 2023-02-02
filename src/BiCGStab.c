@@ -93,15 +93,8 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     exblas::cpu::exdot (n_dist, r, r, &h_superacc[0]);
     // ReproAllReduce -- Begin
     exblas::cpu::Normalize(&h_superacc[0], imin, imax);
-    if (myId == 0) {
-        MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-    } else {
-        MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-    }
-    if (myId == 0) {
-        rho = exblas::cpu::Round( &h_superacc[0] );
-    }
-    MPI_Bcast(&rho, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Allreduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
+    rho = exblas::cpu::Round( &h_superacc[0] );
     // ReproAllReduce -- End
     tol0 = sqrt (rho);
     tol = tol0;
@@ -147,15 +140,8 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         exblas::cpu::exdot (n_dist, r0, s, &h_superacc[0]);             // alpha = <r_0, r_iter> / <r_0, s>
         // ReproAllReduce -- Begin
         exblas::cpu::Normalize(&h_superacc[0], imin, imax);
-        if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-        } else {
-            MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-        }
-        if (myId == 0) {
-            alpha = exblas::cpu::Round( &h_superacc[0] );
-        }
-        MPI_Bcast(&alpha, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Allreduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
+        alpha = exblas::cpu::Round( &h_superacc[0] );
         // ReproAllReduce -- End
         alpha = rho / alpha;
 
@@ -183,20 +169,13 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         for (int i = 0; i < exblas::BIN_COUNT; i++) {
             h_superacc[exblas::BIN_COUNT + i] = h_superacc_tol[i]; 
         } 
-        if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-        } else {
-            MPI_Reduce (&h_superacc[0], NULL, 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-        }
-        if (myId == 0) {
-            // split them back
-            for (int i = 0; i < exblas::BIN_COUNT; i++) {
-                h_superacc_tol[i] = h_superacc[exblas::BIN_COUNT + i]; 
-            } 
-            reduce[0] = exblas::cpu::Round( &h_superacc[0] );
-            reduce[1] = exblas::cpu::Round( &h_superacc_tol[0] );
-        }
-        MPI_Bcast(reduce, 2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Allreduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
+        // split them back
+        for (int i = 0; i < exblas::BIN_COUNT; i++) {
+            h_superacc_tol[i] = h_superacc[exblas::BIN_COUNT + i]; 
+        } 
+        reduce[0] = exblas::cpu::Round( &h_superacc[0] );
+        reduce[1] = exblas::cpu::Round( &h_superacc_tol[0] );
         // ReproAllReduce -- End
         omega = reduce[0] / reduce[1];
 
@@ -220,20 +199,13 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         for (int i = 0; i < exblas::BIN_COUNT; i++) {
             h_superacc[exblas::BIN_COUNT + i] = h_superacc_tol[i]; 
         } 
-        if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-        } else {
-            MPI_Reduce (&h_superacc[0], NULL, 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-        }
-        if (myId == 0) {
-            // split them back
-            for (int i = 0; i < exblas::BIN_COUNT; i++) {
-                h_superacc_tol[i] = h_superacc[exblas::BIN_COUNT + i]; 
-            } 
-            reduce[0] = exblas::cpu::Round( &h_superacc[0] );
-            reduce[1] = exblas::cpu::Round( &h_superacc_tol[0] );
-        }
-        MPI_Bcast(reduce, 2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Allreduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
+        // split them back
+        for (int i = 0; i < exblas::BIN_COUNT; i++) {
+            h_superacc_tol[i] = h_superacc[exblas::BIN_COUNT + i]; 
+        } 
+        reduce[0] = exblas::cpu::Round( &h_superacc[0] );
+        reduce[1] = exblas::cpu::Round( &h_superacc_tol[0] );
         // ReproAllReduce -- End
         tmp = reduce[0];
         tol = sqrt (reduce[1]) / tol0;
@@ -415,15 +387,8 @@ int main (int argc, char **argv) {
         exblas::cpu::exdot (dimL, sol1L, sol1L, &h_superacc[0]);
         int imin=exblas::IMIN, imax=exblas::IMAX;
         exblas::cpu::Normalize(&h_superacc[0], imin, imax);
-        if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-        } else {
-            MPI_Reduce (&h_superacc[0], NULL, exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
-        }
-        if (myId == 0) {
-            beta = exblas::cpu::Round( &h_superacc[0] );
-        }
-        MPI_Bcast(&beta, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Allreduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
+        beta = exblas::cpu::Round( &h_superacc[0] );
         // ReproAllReduce -- End
         
 //    } else {
