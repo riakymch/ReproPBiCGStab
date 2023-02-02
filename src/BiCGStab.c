@@ -148,15 +148,8 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     //rho = ddot (&n_dist, r, &IONE, r, &IONE);                           // tol = r' * r
     exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, r, r, &fpe[0]);
     // ReproAllReduce -- Begin
-    if (myId == 0) {
-        MPI_Reduce (MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
-    } else {
-        MPI_Reduce (&fpe[0], NULL, NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
-    }
-    if (myId == 0) {
-        rho = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
-    }
-    MPI_Bcast(&rho, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op, MPI_COMM_WORLD);
+    rho = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
     // ReproAllReduce -- End
     tol0 = sqrt (rho);
     tol = tol0;
@@ -202,15 +195,8 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         // alpha = <r_0, r_iter> / <r_0, s>
         exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, r0, s, &fpe[0]);
         // ReproAllReduce -- Begin
-        if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
-        } else {
-            MPI_Reduce (&fpe[0], NULL, NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
-        }
-        if (myId == 0) {
-            alpha = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
-        }
-        MPI_Bcast(&alpha, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Allreduce(MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op, MPI_COMM_WORLD);
+        alpha = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
         // ReproAllReduce -- End
         alpha = rho / alpha;
 
@@ -236,20 +222,13 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         for (int i = 0; i < NBFPE; i++) { 
             fpe[NBFPE + i] = fpe_tol[i];
         }
-        if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &fpe[0], 2*NBFPE, MPI_DOUBLE, Op2, 0, MPI_COMM_WORLD);
-        } else {
-            MPI_Reduce (&fpe[0], NULL, 2*NBFPE, MPI_DOUBLE, Op2, 0, MPI_COMM_WORLD);
+        MPI_Allreduce(MPI_IN_PLACE, &fpe[0], 2*NBFPE, MPI_DOUBLE, Op2, MPI_COMM_WORLD);
+        // split two fpes
+        for (int i = 0; i < NBFPE; i++) { 
+            fpe_tol[i] = fpe[NBFPE + i];
         }
-        if (myId == 0) {
-            // split two fpes
-            for (int i = 0; i < NBFPE; i++) { 
-                fpe_tol[i] = fpe[NBFPE + i];
-            }
-            reduce[0] = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
-            reduce[1] = exblas::cpu::Round<double, NBFPE> (&fpe_tol[0]);
-        }
-        MPI_Bcast(reduce, 2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        reduce[0] = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
+        reduce[1] = exblas::cpu::Round<double, NBFPE> (&fpe_tol[0]);
         // ReproAllReduce -- End
         omega = reduce[0] / reduce[1];
 
@@ -271,20 +250,13 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         for (int i = 0; i < NBFPE; i++) { 
             fpe[NBFPE + i] = fpe_tol[i];
         }
-        if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &fpe[0], 2*NBFPE, MPI_DOUBLE, Op2, 0, MPI_COMM_WORLD);
-        } else {
-            MPI_Reduce (&fpe[0], NULL, 2*NBFPE, MPI_DOUBLE, Op2, 0, MPI_COMM_WORLD);
+        MPI_Allreduce(MPI_IN_PLACE, &fpe[0], 2*NBFPE, MPI_DOUBLE, Op2, MPI_COMM_WORLD);
+        // split two fpes
+        for (int i = 0; i < NBFPE; i++) { 
+            fpe_tol[i] = fpe[NBFPE + i];
         }
-        if (myId == 0) {
-            // split two fpes
-            for (int i = 0; i < NBFPE; i++) { 
-                fpe_tol[i] = fpe[NBFPE + i];
-            }
-            reduce[0] = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
-            reduce[1] = exblas::cpu::Round<double, NBFPE> (&fpe_tol[0]);
-        }
-        MPI_Bcast(reduce, 2, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        reduce[0] = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
+        reduce[1] = exblas::cpu::Round<double, NBFPE> (&fpe_tol[0]);
         // ReproAllReduce -- End
         tmp = reduce[0];
         tol = sqrt (reduce[1]) / tol0;
@@ -471,16 +443,9 @@ int main (int argc, char **argv) {
         // user-defined reduction operations
         MPI_Op Op;
         MPI_Op_create( (MPI_User_function *) fpeSum, 1, &Op ); 
-        if (myId == 0) {
-            MPI_Reduce (MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
-        } else {
-            MPI_Reduce (&fpe[0], NULL, NBFPE, MPI_DOUBLE, Op, 0, MPI_COMM_WORLD);
-        }
+        MPI_Allreduce(MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op, MPI_COMM_WORLD);
+        beta = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
         MPI_Op_free( &Op );
-        if (myId == 0) {
-            beta = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
-        }
-        MPI_Bcast(&beta, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
         // ReproAllReduce -- End
         
 //    } else {
