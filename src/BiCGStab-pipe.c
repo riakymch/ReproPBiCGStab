@@ -2,8 +2,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <math.h>
-#include <mkl_blas.h>
 #include <mpi.h>
 #include <hb_io.h>
 #include <vector>
@@ -70,7 +68,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     int IONE = 1; 
     double DONE = 1.0, DMONE = -1.0, DZERO = 0.0;
     int n, n_dist, iter, maxiter, nProcs;
-    double beta, tol, tol0, alpha, umbral, rho, omega, tmp;
+    double beta, tol, tol0, alpha, umbral, rho, omega, tmp, tmpo;
     double *s = NULL, *q = NULL, *r = NULL, *p = NULL, *r0 = NULL, *y = NULL, *p_hat = NULL, *q_hat = NULL;
     double *r_hat = NULL, *z = NULL, *t = NULL, *z_hat = NULL, *w = NULL, *w_hat = NULL, *s_hat = NULL, *v = NULL, *tmpv = NULL;
     double *aux = NULL;
@@ -133,8 +131,8 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     MPI_Allgatherv (x, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
     InitDoubles (s, sizeR, DZERO, DZERO);
     ProdSparseMatrixVectorByRows (mat, 0, aux, s);            			// s = A * x
-    dcopy (&n_dist, b, &IONE, r, &IONE);                                // r = b
-    daxpy (&n_dist, &DMONE, s, &IONE, r, &IONE);                        // r -= s
+    for (int jj = 0; jj < n_dist; jj++)
+        r[jj] = b[jj] - s[jj];
 
     // w0 = A * r0 
 #if PRECOND
@@ -189,21 +187,21 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     tol0 = sqrt(rho);
     tol = tol0;
 
-    dcopy (&n_dist, r, &IONE, r0, &IONE);                               // r0 = r
-    dcopy (&n_dist, r, &IONE, p, &IONE);                                // p = r
-    dcopy (&n_dist, w, &IONE, s, &IONE);                                // s = w
-    dcopy (&n_dist, t, &IONE, z, &IONE);                                // z = t
+    for (int jj = 0; jj < n_dist; jj++) {
+        r0[jj] = r[jj];                                                   // ro = r
+        p[jj] = r[jj];                                                    // p = r
+        s[jj] = w[jj];                                                    // s = w  
+        z[jj] = t[jj];                                                    // z = t  
+    }
 
-    // beta = 0
     beta = 0.0;
-    // omeg = 0
     omega = 0.0;
 
 #if DIRECT_ERROR
     // compute direct error
     double direct_err;
-    dcopy (&n_dist, x_exact, &IONE, res_err, &IONE);                    // res_err = x_exact
-    daxpy (&n_dist, &DMONE, x, &IONE, res_err, &IONE);                  // res_err -= x
+    for (int jj = 0; jj < n_dist; jj++)
+        res_err[jj] = x_exact[jj] - x[jj];
 
     // compute inf norm
     direct_err = norm_inf(n_dist, res_err);
@@ -230,70 +228,47 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #endif // DIRECT_ERROR
 
         // p_hat = r_hat + beta-1 * (p_hat-1 - omega-1 * s_hat-1)
-        dcopy (&n_dist, p_hat, &IONE, tmpv, &IONE);                    // tmpv = p_hat
-        dcopy (&n_dist, r_hat, &IONE, p_hat, &IONE);                   // p_hat = r_hat
         tmp = -omega; 
-//        for (int jj = 0; jj < n_dist; jj++) {
-//            tmpv[jj] = fma(tmp, s_hat[jj], tmpv[jj]);
-//            p_hat[jj] = fma(beta, tmpv[jj], p_hat[jj]);
-//        }    
-        daxpy (&n_dist, &tmp, s_hat, &IONE, tmpv, &IONE);              // tmpv -= omega * s_hat
-        daxpy (&n_dist, &beta, tmpv, &IONE, p_hat, &IONE);             // p_hat += beta * tmpv
+        for (int jj = 0; jj < n_dist; jj++) {
+            p_hat[jj] = fma(tmp, s_hat[jj], p_hat[jj]);
+            p_hat[jj] = fma(beta, p_hat[jj], r_hat[jj]);
+        }    
 
         // s = w + beta-1 * (s-1 - omega-1 * z-1)
         tmp = -omega; 
-        dcopy (&n_dist, s, &IONE, tmpv, &IONE);                        // tmpv = s
-        dcopy (&n_dist, w, &IONE, s, &IONE);                           // s = w
-        tmp = -omega; 
-//        for (int jj = 0; jj < n_dist; jj++) {
-//            tmpv[jj] = fma(tmp, z[jj], tmpv[jj]);
-//            s[jj] = fma(beta, tmpv[jj], s[jj]);
-//        }
-        daxpy (&n_dist, &tmp, z, &IONE, tmpv, &IONE);                  // tmpv -= omega * z
-        daxpy (&n_dist, &beta, tmpv, &IONE, s, &IONE);                 // s += beta * tmpv
+        for (int jj = 0; jj < n_dist; jj++) {
+            s[jj] = fma(tmp, z[jj], s[jj]);
+            s[jj] = fma(beta, s[jj], w[jj]);
+        }
 
         // s_hat = w_hat + beta-1 * (s_hat-1 - omega-1 * z_hat-1)
-        dcopy (&n_dist, s_hat, &IONE, tmpv, &IONE);                    // tmpv = s_hat
-        dcopy (&n_dist, w_hat, &IONE, s_hat, &IONE);                   // s_hat = w_hat
         tmp = -omega; 
-//        for (int jj = 0; jj < n_dist; jj++) {
-//            tmpv[jj] = fma(tmp, z_hat[jj], tmpv[jj]);
-//            s_hat[jj] = fma(beta, tmpv[jj], s_hat[jj]);
-//        }
-        daxpy (&n_dist, &tmp, z_hat, &IONE, tmpv, &IONE);              // tmpv -= omega * z_hat
-        daxpy (&n_dist, &beta, tmpv, &IONE, s_hat, &IONE);             // s_hat += beta * tmpv
+        for (int jj = 0; jj < n_dist; jj++) {
+            s_hat[jj] = fma(tmp, z_hat[jj], s_hat[jj]);
+            s_hat[jj] = fma(beta, s_hat[jj], w_hat[jj]);
+        }
 
         // z = t + beta-1 * (z-1 - omega-1 * v-1)
-        dcopy (&n_dist, z, &IONE, tmpv, &IONE);                        // tmpv = z
-        dcopy (&n_dist, t, &IONE, z, &IONE);                           // z = t
         tmp = -omega; 
-//        for (int jj = 0; jj < n_dist; jj++) {
-//            tmpv[jj] = fma(tmp, v[jj], tmpv[jj]);
-//            z[jj] = fma(beta, tmpv[jj], z[jj]);
-//        }
-        daxpy (&n_dist, &tmp, v, &IONE, tmpv, &IONE);                  // tmpv -= omega * v
-        daxpy (&n_dist, &beta, tmpv, &IONE, z, &IONE);                 // z += beta * tmpv
+        for (int jj = 0; jj < n_dist; jj++) {
+            z[jj] = fma(tmp, v[jj], z[jj]);
+            z[jj] = fma(beta, z[jj], t[jj]);
+        }
 
         // q = r - alpha * s 
-        dcopy (&n_dist, r, &IONE, q, &IONE);                            // q = r
         tmp = -alpha;
-//        for (int jj = 0; jj < n_dist; jj++)
-//            q[jj] = fma(tmp, s[jj], q[jj]);
-        daxpy (&n_dist, &tmp, s, &IONE, q, &IONE);                      // q = r - alpha * s;
+        for (int jj = 0; jj < n_dist; jj++)
+            q[jj] = fma(tmp, s[jj], r[jj]);
 
         // q_hat = r_hat - alpha * s_hat 
-        dcopy (&n_dist, r_hat, &IONE, q_hat, &IONE);                    // q_hat = r_hat
         tmp = -alpha;
-//        for (int jj = 0; jj < n_dist; jj++)
-//            q_hat[jj] = fma(tmp, s_hat[jj], q_hat[jj]);
-        daxpy (&n_dist, &tmp, s_hat, &IONE, q_hat, &IONE);              // q_hat = q_hat - alpha * s_hat;
+        for (int jj = 0; jj < n_dist; jj++)
+            q_hat[jj] = fma(tmp, s_hat[jj], r_hat[jj]);
 
         // y = w - alpha * z 
-        dcopy (&n_dist, w, &IONE, y, &IONE);                            // y = w
         tmp = -alpha;
-//        for (int jj = 0; jj < n_dist; jj++)
-//            y[jj] = fma(tmp, z[jj], y[jj]);
-        daxpy (&n_dist, &tmp, z, &IONE, y, &IONE);                      // y = w - alpha * z;
+        for (int jj = 0; jj < n_dist; jj++)
+            y[jj] = fma(tmp, z[jj], w[jj]);
 
         // omega = <q, y> / <y, y>
         exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, q, y, &fpe[0]);
@@ -304,7 +279,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
             fpe[NBFPE + i] = fpe1[i];
         }
         MPI_Iallreduce(MPI_IN_PLACE, &fpe[0], 2*NBFPE, MPI_DOUBLE, Op5, MPI_COMM_WORLD, &request);
-        // ReproAllReduce -- End
 
 #if PRECOND
         VvecDoubles (DONE, diags, z, DZERO, z_hat, n_dist);              // z_hat = D^-1 * z
@@ -317,6 +291,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
         // wait for MPI_Iallreduce to complete
         MPI_Wait(&request, MPI_STATUS_IGNORE);
+        // ReproAllReduce -- End
         // split two fpes
         for (int i = 0; i < NBFPE; i++) { 
             fpe1[i] = fpe[NBFPE + i];
@@ -326,45 +301,31 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         omega = reduce[0] / reduce[1];
 
         // x+1 = x + alpha * p_hat + omega * q_hat
-//        for (int jj = 0; jj < n_dist; jj++) {
-//            x[jj] = fma(alpha, p_hat[jj], x[jj]);
-//            x[jj] = fma(omega, q_hat[jj], x[jj]);
-//        }
-        daxpy (&n_dist, &alpha, p_hat, &IONE, x, &IONE); 
-        daxpy (&n_dist, &omega, q_hat, &IONE, x, &IONE); 
+        for (int jj = 0; jj < n_dist; jj++) {
+            x[jj] = fma(alpha, p_hat[jj], x[jj]);
+            x[jj] = fma(omega, q_hat[jj], x[jj]);
+        }
 
         // r+1 = q - omega * y
-        dcopy (&n_dist, q, &IONE, r, &IONE);                            // r = q
         tmp = -omega;
-//        for (int jj = 0; jj < n_dist; jj++)
-//            r[jj] = fma(tmp, y[jj], r[jj]);
-        daxpy (&n_dist, &tmp, y, &IONE, r, &IONE);                      // r = q - omega * y;
+        for (int jj = 0; jj < n_dist; jj++)
+            r[jj] = fma(tmp, y[jj], q[jj]);
        
         // r_hat+1 = q_hat - omega * (w_hat - alpha * z_hat)
-        dcopy (&n_dist, w_hat, &IONE, tmpv, &IONE);                     // tmpv = w_hat
-        dcopy (&n_dist, q_hat, &IONE, r_hat, &IONE);                    // r_hat = q_hat
         tmp = -alpha; 
-//        double tmpo = -omega; 
-//        for (int jj = 0; jj < n_dist; jj++) {
-//            tmpv[jj] = fma(tmp, z_hat[jj], tmpv[jj]);
-//            r_hat[jj] = fma(tmpo, tmpv[jj], r_hat[jj]);
-//        }
-        daxpy (&n_dist, &tmp, z_hat, &IONE, tmpv, &IONE);               // tmpv -= alpha * z_hat
-        tmp = -omega; 
-        daxpy (&n_dist, &tmp, tmpv, &IONE, r_hat, &IONE);               // r_hat -= omega * tmpv
+        tmpo = -omega; 
+        for (int jj = 0; jj < n_dist; jj++) {
+            r_hat[jj] = fma(tmp, z_hat[jj], w_hat[jj]);
+            r_hat[jj] = fma(tmpo, r_hat[jj], q_hat[jj]);
+        }
        
         // w+1 = y - omega * (t - alpha * v)
-        dcopy (&n_dist, t, &IONE, tmpv, &IONE);                         // tmpv = t
-        dcopy (&n_dist, y, &IONE, w, &IONE);                            // w = y
         tmp = -alpha; 
-//        double tmpo = -omega; 
-//        for (int jj = 0; jj < n_dist; jj++) {
-//            tmpv[jj] = fma(tmp, v[jj], tmpv[jj]);
-//            w[jj] = fma(tmpo, tmpv[jj], w[jj]);
-//        }
-        daxpy (&n_dist, &tmp, v, &IONE, tmpv, &IONE);                   // tmpv -= alpha * v
-        tmp = -omega; 
-        daxpy (&n_dist, &tmp, tmpv, &IONE, w, &IONE);                   // w -= omega * tmpv
+        tmpo = -omega; 
+        for (int jj = 0; jj < n_dist; jj++) {
+            w[jj] = fma(tmp, v[jj], t[jj]);
+            w[jj] = fma(tmpo, w[jj], y[jj]);
+        }
 
         // beta = (alpha / omega) * <r0, r+1> / <r0, r>
         // rho = <r0, r+1> and tolerance
@@ -382,7 +343,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
             fpe[4*NBFPE + i] = fpe4[i];
         }
         MPI_Iallreduce(MPI_IN_PLACE, &fpe[0], 5*NBFPE, MPI_DOUBLE, Op5, MPI_COMM_WORLD, &request);
-        // ReproAllReduce -- End
 
         // t = A w
 #if PRECOND
@@ -396,6 +356,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
         // wait for MPI_Iallreduce to complete
         MPI_Wait(&request, MPI_STATUS_IGNORE);
+        // ReproAllReduce -- End
         // split two fpes
         for (int i = 0; i < NBFPE; i++) { 
             fpe1[i] = fpe[NBFPE + i];
@@ -418,8 +379,8 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 
 #if DIRECT_ERROR
         // compute direct error
-        dcopy (&n_dist, x_exact, &IONE, res_err, &IONE);               // res_err = x_exact
-        daxpy (&n_dist, &DMONE, x, &IONE, res_err, &IONE);             // res_err -= x
+        for (int jj = 0; jj < n_dist; jj++)
+            res_err[jj] = x_exact[jj] - x[jj];
 
         // compute inf norm
         direct_err = norm_inf(n_dist, res_err);
@@ -559,7 +520,8 @@ int main (int argc, char **argv) {
         // compute b = A * x_c, x_c = 1/sqrt(nbrows)
         InitDoubles (sol1, dim, 1.0, 0.0);
         ProdSparseMatrixVectorByRows (matL, 0, sol1, sol1L);            			// s = A * x
-        dscal (&dimL, &beta, sol1L, &IONE);                                         // s = beta * s
+        for (int jj = 0; jj < dimL; jj++)                                           // s = beta * s
+            sol1L[jj] = beta * sol1L[jj];
     } else {
         InitDoubles (sol1, dim, 0.0, 0.0);
 
@@ -581,8 +543,8 @@ int main (int argc, char **argv) {
         MPI_Allgatherv (sol2L, dimL, MPI_DOUBLE, sol2, vdimL, vdspL, MPI_DOUBLE, MPI_COMM_WORLD);
         InitDoubles (sol2L, dimL, 0, 0);
         ProdSparseMatrixVectorByRows (matL, 0, sol2, sol2L);            			// s = A * x
-        double DMONE = -1.0;
-        daxpy (&dimL, &DMONE, sol2L, &IONE, sol1L, &IONE);                          // r -= s
+        for (int jj = 0; jj < dimL; jj++)                                           // r -= s
+            sol1L[jj] = sol1L[jj] - sol2L[jj];
 
         std::vector<double> fpe(NBFPE);
         exblas::cpu::exdot<double*, double*, NBFPE> (dimL, sol1L, sol1L, &fpe[0]);

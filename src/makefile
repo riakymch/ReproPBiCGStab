@@ -74,7 +74,7 @@ BiCGStab: BiCGStab.o ToolsMPI.o matrix.o
 	$(CLINKER) $(LDFLAGS) -o BiCGStab BiCGStab.o ToolsMPI.o matrix.o $(LIBMKL) $(LIBLIST)
 
 BiCGStab-pipe: BiCGStab-pipe.o ToolsMPI.o matrix.o 
-	$(CLINKER) $(LDFLAGS) -o BiCGStab-pipe BiCGStab-pipe.o ToolsMPI.o matrix.o $(LIBMKL) $(LIBLIST)
+	$(CLINKER) $(LDFLAGS) -o BiCGStab-pipe BiCGStab-pipe.o ToolsMPI.o matrix.o $(LIBLIST)
 
 # ============================================================
 
