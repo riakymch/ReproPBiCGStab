@@ -7,7 +7,7 @@ ReproPBiCGStab aims to ensure reproducibility and accuracy of the pure MPI imple
 
 - master with the reproducible and accurate implementation using the ExBLAS approach
 
-- opt_exblas optimizes the previous version by relying only on floating-point expansions (FPE, short arrays of doubles) with error-free transformations (`twosum' and `twoprod'). This version employs FPEs of size 8 with the early-exit technique
+- opt_exblas optimizes the previous version by relying only on floating-point expansions (FPE, short arrays of doubles) with error-free transformations (`twosum` and `twoprod`). This version employs FPEs of size 8 with the early-exit technique
 
 - mpfr provides highly accurate sequential implementation using the MPFR library. It serves as a reference
 
