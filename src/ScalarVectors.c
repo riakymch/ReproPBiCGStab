@@ -70,6 +70,29 @@ int AddInts (int *vint, int dim) {
 	return aux;
 }
 
+// The permutation defined by perm is applied on vec, whose size is dim. 
+void PermuteInts (int *vec, int *perm, int dim) {
+  int i, *pi = vec;
+
+  for (i=0; i<dim; i++) { *pi = perm[*pi]; pi++; }
+}
+
+// Apply the inverse of perm, and store it on iperm, whose size is dim. 
+void ComputeInvPermutation (int *perm, int *iperm, int dim) {
+  int i, *pi1 = perm;
+
+  for (i=0; i<dim; i++) { iperm[*(pi1++)] = i; }
+}
+
+// Scale by scal the elements of vint, whose size is dim. 
+void ScaleInts (int *vint, int scal, int dim) {
+  int i;
+  int *pi = vint;
+
+  for (i=0; i<dim; i++)
+    *(pi++) *= scal;
+}
+
 /*********************************************************************************/
 
 void CreateDoubles (double **vdbl, int dim) {
@@ -125,7 +148,7 @@ void VvecDoubles (double alfa, double *src1, double *src2, double beta, double *
     for (i = 0; i < dim; i++) {
         //dst[i] = (beta * dst[i]) + (alfa * src1[i] * src2[i]); 
         double tmp = alfa * src1[i] * src2[i];
-        dst[i] = fma(beta, dst[i], tmp);
+        dst[i] = fma(beta, dst[i], tmp);	
     }
 }
 

@@ -33,6 +33,8 @@
 #define Tag_Send_Vector_To_Leaf            230
 // #define Tag_FactorVector           240
 
+#define Tag_NonBlocking_SpMV               1051
+
 /*********************************************************************************/
 
 // typedef struct SimpleNode {
@@ -64,7 +66,7 @@ typedef struct {
 
 /*********************************************************************************/
 
-extern void Synchonization (MPI_Comm Synch_Comm, char *message);
+extern void Synchronization (MPI_Comm Synch_Comm, char *message);
 
 /*********************************************************************************/
 
@@ -102,5 +104,46 @@ extern int ComputeSprMatrixRecvWeights (int prc_src, int sizes, MPI_Comm comm);
 
 extern int DistributeMatrix (SparseMatrix spr, int index, ptr_SparseMatrix sprL, int indexL,
 															int *vdimL, int *vdspL, int root, MPI_Comm comm);
+
+/*********************************************************************************/
+
+// vcols is a vector with dimPos elements, including integer values from 0 to dim-1
+// The routine creates a bitmap determining which col index exists in vcols.
+// The bitmao is stored in colsJoin whose size is colsJoin_dim
+extern void joinColumns (int dim, int *vcols, int dimPos, unsigned char **colsJoin, 
+										int *colsJoin_dim);
+
+// From colsJoin, this routine creates vector perm including the contents of the bitmap
+// Knowing the partition defined by nProcs and vdspL, this routine extends this
+//     partition on perm, using vdimP and vdspP vectors
+extern int createPerm (unsigned char *colsJoin, int colsJoin_dim, int *perm, int dim,
+									int *vdspL, int *vdimP, int *vdspP, int nProcs);
+
+// Creation of the MPI_Datatype vectors to perform a reduction of the communications
+// vectDatatypeP includes MPI_DOUBLE for all processes.
+// vectDatatypeR includes the permutation required for each process.
+extern void createVectMPITypes (int myId, int nProcs, int *vdimL, int *vdimP, 
+													int *permR, int *vdimR, int *vdspR,
+													MPI_Datatype *vectDatatypeP, MPI_Datatype *vectDatatypeR);
+
+// Creation of all structures to perform a reduction of the communications
+// coll_p2p adapts the contents of the structure for collective or p2p operations
+// vecP is created to store the required elements to complete the product in the process
+// permP is created and included the permutation to be applied on vcols.
+extern void createAlltoallwStruct (int coll_p2p, MPI_Comm comm, SparseMatrix matL, 
+														int *vdimL, int *vdspL, int *vdimP, int *vdspP,
+														double **vecP, int **permP, int *ipermP, 
+														int *vdimR, int *vdspR,
+														MPI_Datatype *vectDatatypeP, MPI_Datatype *vectDatatypeR);
+
+// Communications to complete a MPI_Alltoallv reducing the communications
+// All elements required to compute SpMV is stored on vecP from vecL
+// coll_p2p marks if collective or p2p operations are used
+extern void joinDistributeVectorSPMV (int coll_p2p, MPI_Comm comm, double *vecL, 
+																double *vecP, int *vdimP, int *vdspP, int *vdimR, 
+																int *vdspR, MPI_Datatype *vectDatatypeP, 
+																MPI_Datatype *vectDatatypeR);
+
+/*********************************************************************************/
 
 #endif

@@ -22,6 +22,10 @@
 #define DIRECT_ERROR 0
 #define PRECOND 1
 #define VECTOR_OUTPUT 0
+#define SPMV_OPTIMIZED 1
+#ifdef SPMV_OPTIMIZED
+	#define COLL_P2P_SPMV 0
+#endif
 
 void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, int myId) {
     int size = mat.dim2, sizeR = mat.dim1; 
@@ -39,7 +43,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #endif
 
     MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
-    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-8;
+    n = size; n_dist = sizeR; maxiter = 16 * size; umbral = 1.0e-6;
     CreateDoubles (&s, n_dist);
     CreateDoubles (&q, n_dist);
     CreateDoubles (&r, n_dist);
@@ -64,7 +68,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     for (i=0; i<n_dist; i++) 
         diags[i] = DONE / diags[i];
 #endif
-    CreateDoubles (&aux, n); 
 
 #if VECTOR_OUTPUT
     // write to file for testing purpose
@@ -76,10 +79,35 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     }
 #endif
 
-    iter = 0;
+#ifdef SPMV_OPTIMIZED
+    int *permP = NULL, *ipermP = NULL;
+    int *vdspP = NULL, *vdimP = NULL, *vdspR = NULL, *vdimR = NULL;
+    double *vecP = NULL;
+    MPI_Datatype *vectDatatypeP = NULL, *vectDatatypeR = NULL;
+
+    CreateInts (&ipermP, size);
+    CreateInts (&vdimP, nProcs); CreateInts (&vdspP, nProcs + 1);
+    CreateInts (&vdimR, nProcs); CreateInts (&vdspR, nProcs + 1);
+    vectDatatypeP = (MPI_Datatype *) malloc (nProcs * sizeof(MPI_Datatype));
+    vectDatatypeR = (MPI_Datatype *) malloc (nProcs * sizeof(MPI_Datatype));
+    createAlltoallwStruct (COLL_P2P_SPMV, MPI_COMM_WORLD, mat, sizes, dspls, vdimP, vdspP, &vecP, &permP, ipermP, vdimR, vdspR, vectDatatypeP, vectDatatypeR);
+
+    // Code required before the loop  
+    PermuteInts (mat.vpos, ipermP, mat.vptr[mat.dim1]);
+#else
+    CreateDoubles (&aux, n); 
+#endif
+
+#ifdef SPMV_OPTIMIZED
+    joinDistributeVectorSPMV (COLL_P2P_SPMV, MPI_COMM_WORLD, x, vecP, vdimP, vdspP, vdimR, vdspR, vectDatatypeP, vectDatatypeR);
+    InitDoubles (s, sizeR, DZERO, DZERO);
+    ProdSparseMatrixVectorByRows (mat, 0, vecP, s);            			// s = A * x
+#else
     MPI_Allgatherv (x, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
     InitDoubles (s, sizeR, DZERO, DZERO);
     ProdSparseMatrixVectorByRows (mat, 0, aux, s);            			// s = A * x
+#endif
+
     dcopy (&n_dist, b, &IONE, r, &IONE);                                // r = b
     daxpy (&n_dist, &DMONE, s, &IONE, r, &IONE);                        // r -= s
 
@@ -119,6 +147,7 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     if (myId == 0) 
         reloj (&t1, &t2);
 
+    iter = 0;
     while ((iter < maxiter) && (tol > umbral)) {
 
 #if PRECOND
@@ -126,9 +155,15 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #else
         p_hat = p;
 #endif
+#ifdef SPMV_OPTIMIZED
+        joinDistributeVectorSPMV (COLL_P2P_SPMV, MPI_COMM_WORLD, p_hat, vecP, vdimP, vdspP, vdimR, vdspR, vectDatatypeP, vectDatatypeR);
+        InitDoubles (s, sizeR, DZERO, DZERO);
+        ProdSparseMatrixVectorByRows (mat, 0, vecP, s);            	     // s = A * p
+#else
         MPI_Allgatherv (p_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
         InitDoubles (s, sizeR, DZERO, DZERO);
         ProdSparseMatrixVectorByRows (mat, 0, aux, s);            	     // s = A * p
+#endif
 
         if (myId == 0) 
 #if DIRECT_ERROR
@@ -155,9 +190,15 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #else
         q_hat = q;
 #endif
+#ifdef SPMV_OPTIMIZED
+        joinDistributeVectorSPMV (COLL_P2P_SPMV, MPI_COMM_WORLD, q_hat, vecP, vdimP, vdspP, vdimR, vdspR, vectDatatypeP, vectDatatypeR);
+        InitDoubles (y, sizeR, DZERO, DZERO);
+        ProdSparseMatrixVectorByRows (mat, 0, vecP, y);            		// y = A * q
+#else
         MPI_Allgatherv (q_hat, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
         InitDoubles (y, sizeR, DZERO, DZERO);
         ProdSparseMatrixVectorByRows (mat, 0, aux, y);            		// y = A * q
+#endif
 
         // omega = <q, y> / <y, y>
         exblas::cpu::exdot (n_dist, q, y, &h_superacc[0]);
@@ -189,26 +230,13 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         daxpy (&n_dist, &tmp, y, &IONE, r, &IONE);                      // r = q - omega * y;
         
         // rho = <r0, r+1> and tolerance
-        // cannot just use <r0, r> as the stopping criteria since it slows the convergence compared to <r, r>
         exblas::cpu::exdot (n_dist, r0, r, &h_superacc[0]);
-        exblas::cpu::exdot (n_dist, r, r, &h_superacc_tol[0]);
         // ReproAllReduce -- Begin
         exblas::cpu::Normalize(&h_superacc[0], imin, imax);
-        exblas::cpu::Normalize(&h_superacc_tol[0], imin, imax);
-        // merge two superaccs into one for reduction
-        for (int i = 0; i < exblas::BIN_COUNT; i++) {
-            h_superacc[exblas::BIN_COUNT + i] = h_superacc_tol[i]; 
-        } 
-        MPI_Allreduce (MPI_IN_PLACE, &h_superacc[0], 2*exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
-        // split them back
-        for (int i = 0; i < exblas::BIN_COUNT; i++) {
-            h_superacc_tol[i] = h_superacc[exblas::BIN_COUNT + i]; 
-        } 
-        reduce[0] = exblas::cpu::Round( &h_superacc[0] );
-        reduce[1] = exblas::cpu::Round( &h_superacc_tol[0] );
+        MPI_Allreduce (MPI_IN_PLACE, &h_superacc[0], exblas::BIN_COUNT, MPI_INT64_T, MPI_SUM, MPI_COMM_WORLD);
+        tmp = exblas::cpu::Round( &h_superacc[0] );
         // ReproAllReduce -- End
-        tmp = reduce[0];
-        tol = sqrt (reduce[1]) / tol0;
+        tol = sqrt(fabs(tmp)) / tol0;
 
         // beta = (alpha / omega) * <r0, r+1> / <r0, r>
         beta = (alpha / omega) * (tmp / rho);
@@ -261,7 +289,20 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         printf ("Time_iter: %20.10e\n", (t3-t1)/iter);
     }
 
-    RemoveDoubles (&aux); RemoveDoubles (&s); RemoveDoubles (&q); 
+#ifdef SPMV_OPTIMIZED
+  // Code required after the loop 
+  PermuteInts (mat.vpos, permP, mat.vptr[mat.dim1]);
+
+  // Freeing memory for Permutation
+  free (vectDatatypeR); vectDatatypeR = NULL; free (vectDatatypeP); vectDatatypeP = NULL;
+  RemoveDoubles (&vecP); RemoveInts (&permP);
+  RemoveInts (&vdspR); RemoveInts (&vdimR); RemoveInts (&vdspP); RemoveInts (&vdimP);
+  RemoveInts (&ipermP);
+#else
+  RemoveDoubles (&aux); 
+#endif
+
+    RemoveDoubles (&s); RemoveDoubles (&q); 
     RemoveDoubles (&r); RemoveDoubles (&p); RemoveDoubles (&r0); RemoveDoubles (&y);
 #if PRECOND
     RemoveDoubles (&diags); RemoveInts (&posd);
