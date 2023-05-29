@@ -119,7 +119,6 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     for (i=0; i<n_dist; i++) 
         diags[i] = DONE / diags[i];
 #endif
-    CreateDoubles (&aux, n); 
 
 #if VECTOR_OUTPUT
     // write to file for testing purpose
@@ -286,16 +285,10 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         // rho = <r0, r+1> and tolerance
         exblas::cpu::exdot<double*, double*, NBFPE> (n_dist, r0, r, &fpe[0]);
         // ReproAllReduce -- Begin
-        MPI_Allreduce(MPI_IN_PLACE, &fpe[0], 2*NBFPE, MPI_DOUBLE, Op2, MPI_COMM_WORLD);
-        // split two fpes
-        for (int i = 0; i < NBFPE; i++) { 
-            fpe_tol[i] = fpe[NBFPE + i];
-        }
-        reduce[0] = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
-        reduce[1] = exblas::cpu::Round<double, NBFPE> (&fpe_tol[0]);
+        MPI_Allreduce(MPI_IN_PLACE, &fpe[0], NBFPE, MPI_DOUBLE, Op2, MPI_COMM_WORLD);
+        tmp = exblas::cpu::Round<double, NBFPE> (&fpe[0]);
         // ReproAllReduce -- End
-        tmp = reduce[0];
-        tol = sqrt (reduce[1]) / tol0;
+        tol = sqrt (fabs(tmp)) / tol0;
 
         // beta = (alpha / omega) * <r0, r+1> / <r0, r>
         beta = (alpha / omega) * (tmp / rho);
