@@ -95,7 +95,6 @@ void BiCGStab(SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, in
     CreateDoubles (&aux, n); 
 #endif
 
-    iter = 0;
 #ifdef SPMV_OPTIMIZED
     joinDistributeVectorSPMV (COLL_P2P_SPMV, MPI_COMM_WORLD, x, vecP, vdimP, vdspP, vdimR, vdspR, vectDatatypeP, vectDatatypeR);
     InitDoubles (s, sizeR, DZERO, DZERO);
@@ -137,6 +136,7 @@ void BiCGStab(SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, in
     if (myId == 0) 
         reloj (&t1, &t2);
 
+    iter = 0;
     while ((iter < maxiter) && (tol > umbral)) {
 
 #if PRECOND
@@ -145,8 +145,7 @@ void BiCGStab(SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, in
         p_hat = p;
 #endif
 #ifdef SPMV_OPTIMIZED
-        joinDistributeVectorSPMV (COLL_P2P_SPMV, MPI_COMM_WORLD, p_hat, vecP, vdimP, 
-																		vdspP, vdimR, vdspR, vectDatatypeP, vectDatatypeR);
+        joinDistributeVectorSPMV (COLL_P2P_SPMV, MPI_COMM_WORLD, p_hat, vecP, vdimP, vdspP, vdimR, vdspR, vectDatatypeP, vectDatatypeR);
         InitDoubles (s, sizeR, DZERO, DZERO);
         ProdSparseMatrixVectorByRows (mat, 0, vecP, s);            	     // s = A * p
 #else
