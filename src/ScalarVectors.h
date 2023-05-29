@@ -21,6 +21,15 @@ extern void ComputeLengthfromHeader (int *head, int *len, int dim);
 
 extern int AddInts (int *vint, int dim);
 
+// The permutation defined by perm is applied on vec, whose size is dim. 
+extern void PermuteInts (int *vec, int *perm, int dim);
+
+// Apply the inverse of perm, and store it on iperm, whose size is dim. 
+extern void ComputeInvPermutation (int *perm, int *iperm, int dim);
+
+// Scale by scal the elements of vint, whose size is dim. 
+extern void ScaleInts (int *vint, int scal, int dim);
+
 /*********************************************************************************/
 
 extern void CreateDoubles (double **vdbl, int dim);
