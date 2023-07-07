@@ -260,7 +260,7 @@ int createPerm (unsigned char *colsJoin, int colsJoin_dim, int *perm, int dim,
 	for (i=0; i<colsJoin_dim; i++) {
 		if (colsJoin[i] != 0x0) {
 			unsigned char car = 0x1;
-			for (j=0; j<8*sizeof(unsigned char); j++) {
+			for (j=0; j<(int)8*sizeof(unsigned char); j++) {
 				if (col == vdspL[prc]) {
 					vdimP[prc-1] = k - vdspP[prc-1];
 					vdspP[prc] = k;

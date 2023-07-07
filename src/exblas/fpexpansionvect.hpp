@@ -126,9 +126,10 @@ void FPExpansionVect<T,N,TRAITS>::Accumulate(T x)
 	    return;
     }
 
-    if (horizontal_or(x)) {
-        fprintf(stderr, "WARN: with the FPE-based implementation we cannot keep every bit of information for this problem due to either high condition number (ill-cond), too broad dynamic range, or both. Thus, we cannot ensure correct-rounding and bitwise reproducibility. Hence, we advise to switch to the ExBLAS-based implementation for this particular (rather rare) case.\n");
-    }
+//    // warning commented
+//    if (horizontal_or(x)) {
+//        fprintf(stderr, "WARN: with the FPE-based implementation we cannot keep every bit of information for this problem due to either high condition number (ill-cond), too broad dynamic range, or both. Thus, we cannot ensure correct-rounding and bitwise reproducibility. Hence, we advise to switch to the ExBLAS-based implementation for this particular (rather rare) case.\n");
+//    }
 }
 
 template<typename T, int N, typename TRAITS>

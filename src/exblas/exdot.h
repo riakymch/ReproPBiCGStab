@@ -85,7 +85,7 @@ void exdot(unsigned size, PointerOrValue1 x1_ptr, PointerOrValue2 x2_ptr, double
     static_assert( has_floating_value<PointerOrValue1>::value, "PointerOrValue1 needs to be T or T* with T one of (const) float or (const) double");
     static_assert( has_floating_value<PointerOrValue2>::value, "PointerOrValue2 needs to be T or T* with T one of (const) float or (const) double");
 
-    for( int i=0; i<NBFPE; i++)
+    for( int i=0; i<(int)NBFPE; i++)
         fpe[i] = 0;
 
 #ifndef _WITHOUT_VCL
