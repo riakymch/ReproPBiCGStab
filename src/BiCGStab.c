@@ -3,7 +3,6 @@
 #include <unistd.h>
 #include <string.h>
 #include <math.h>
-#include <mkl_blas.h>
 #include <mpi.h>
 #include <hb_io.h>
 
@@ -18,7 +17,7 @@
 #include <mpfr.h>
 
 #define DIRECT_ERROR 0
-#define PRECOND 0
+#define PRECOND 1
 #define VECTOR_OUTPUT 0
 
 double dot_mpfr(int *N, double *a, int *inca, double *b, int *incb) {
@@ -108,11 +107,16 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
     MPI_Allgatherv (x, sizeR, MPI_DOUBLE, aux, sizes, dspls, MPI_DOUBLE, MPI_COMM_WORLD);
     InitDoubles (s, sizeR, DZERO, DZERO);
     ProdSparseMatrixVectorByRows (mat, 0, aux, s);            			// s = A * x
-    dcopy (&n_dist, b, &IONE, r, &IONE);                                // r = b
-    daxpy (&n_dist, &DMONE, s, &IONE, r, &IONE);                        // r -= s
 
-    dcopy (&n_dist, r, &IONE, p, &IONE);                                // p = r
-    dcopy (&n_dist, r, &IONE, r0, &IONE);                               // r0 = r
+    // r = b - s
+    for (int jj = 0; jj < n_dist; jj++) {
+        r[jj] = b[jj] - s[jj];    
+        r0[jj] = r[jj];                                                   // ro = r
+        p[jj] = r[jj];                                                    // p = r
+    }    
+
+    beta = 0.0;
+    omega = 0.0;
 
     // compute tolerance and <r0,r0>
     rho = dot_mpfr (&n_dist, r, &IONE, r, &IONE);                           // tol = r' * r
@@ -124,8 +128,8 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
 #if DIRECT_ERROR
     // compute direct error
     double direct_err;
-    dcopy (&n_dist, x_exact, &IONE, res_err, &IONE);                    // res_err = x_exact
-    daxpy (&n_dist, &DMONE, x, &IONE, res_err, &IONE);                  // res_err -= x
+    for (int jj = 0; jj < n_dist; jj++)
+        res_err[jj] = x_exact[jj] - x[jj];
 
     // compute inf norm
     direct_err = norm_inf(n_dist, res_err);
@@ -160,9 +164,10 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         alpha = dot_mpfr (&n_dist, r0, &IONE, s, &IONE);                // alpha = <r_0, r_iter> / <r_0, s>
         alpha = rho / alpha;
 
-        dcopy (&n_dist, r, &IONE, q, &IONE);                            // q = r
+		// q = r - alpha * s
         tmp = -alpha;
-        daxpy (&n_dist, &tmp, s, &IONE, q, &IONE);                      // q = r - alpha * s;
+        for (int jj = 0; jj < n_dist; jj++) 
+			q[jj] = fma(tmp, s[jj], r[jj]);
 
         // second spmv
 #if PRECOND
@@ -180,20 +185,21 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
         omega = reduce[0] / reduce[1];
 
         // x+1 = x + alpha * p + omega * q
-        daxpy (&n_dist, &alpha, p_hat, &IONE, x, &IONE); 
-        daxpy (&n_dist, &omega, q_hat, &IONE, x, &IONE); 
+        for (int jj = 0; jj < n_dist; jj++) { 
+			x[jj] = fma(alpha, p_hat[jj], x[jj]);
+			x[jj] = fma(omega, q_hat[jj], x[jj]);
+		}
 
         // r+1 = q - omega * y
-        dcopy (&n_dist, q, &IONE, r, &IONE);                            // r = q
         tmp = -omega;
-        daxpy (&n_dist, &tmp, y, &IONE, r, &IONE);                      // r = q - omega * y;
+        for (int jj = 0; jj < n_dist; jj++)
+            r[jj] = fma(tmp, y[jj], q[jj]);
         
         // rho = <r0, r+1> and tolerance
         // cannot just use <r0, r> as the stopping criteria since it slows the convergence compared to <r, r>
         reduce[0] = dot_mpfr (&n_dist, r0, &IONE, r, &IONE);
-        reduce[1] = dot_mpfr (&n_dist, r, &IONE, r, &IONE);
         tmp = reduce[0];
-        tol = sqrt (reduce[1]) / tol0;
+        tol = sqrt (fabs(tmp)) / tol0;
 
         // beta = (alpha / omega) * <r0, r+1> / <r0, r>
         beta = (alpha / omega) * (tmp / rho);
@@ -201,14 +207,15 @@ void BiCGStab (SparseMatrix mat, double *x, double *b, int *sizes, int *dspls, i
        
         // p+1 = r+1 + beta * (p - omega * s)
         tmp = -omega; 
-        daxpy (&n_dist, &tmp, s, &IONE, p, &IONE);                     // p -= omega * s
-        dscal (&n_dist, &beta, p, &IONE);                              // p = beta * p
-        daxpy (&n_dist, &DONE, r, &IONE, p, &IONE);                    // p += r
+        for (int jj = 0; jj < n_dist; jj++) {
+            p[jj] = fma(tmp, s[jj], p[jj]);
+            p[jj] = fma(beta, p[jj], r[jj]);
+        }
 
 #if DIRECT_ERROR
         // compute direct error
-        dcopy (&n_dist, x_exact, &IONE, res_err, &IONE);               // res_err = x_exact
-        daxpy (&n_dist, &DMONE, x, &IONE, res_err, &IONE);             // res_err -= x
+        for (int jj = 0; jj < n_dist; jj++)
+            res_err[jj] = x_exact[jj] - x[jj];
 
         // compute inf norm
         direct_err = norm_inf(n_dist, res_err);
@@ -345,7 +352,8 @@ int main (int argc, char **argv) {
     // compute b = A * x_c, x_c = 1/sqrt(nbrows)
     ProdSparseMatrixVectorByRows (matL, 0, sol1, sol1L);            			// s = A * x
     double beta = 1.0 / sqrt(dim);
-    dscal (&dimL, &beta, sol1L, &IONE);                                         // s = beta * s
+    for (int jj = 0; jj < dimL; jj++)                                           // s = beta * s
+    	sol1L[jj] = beta * sol1L[jj];
 
     MPI_Scatterv (sol2, vdimL, vdspL, MPI_DOUBLE, sol2L, dimL, MPI_DOUBLE, root, MPI_COMM_WORLD);
 
@@ -358,8 +366,8 @@ int main (int argc, char **argv) {
 //    beta = ddot (&dimL, sol2L, &IONE, sol2L, &IONE);            
     InitDoubles (sol2, dimL, 0, 0);
     ProdSparseMatrixVectorByRows (matL, 0, sol2L, sol2);            			// s = A * x
-    double DMONE = -1.0;
-    daxpy (&dimL, &DMONE, sol2, &IONE, sol1L, &IONE);                        // r -= s
+    for (int jj = 0; jj < dimL; jj++)                                           // r -= s
+        sol1L[jj] = sol1L[jj] - sol2L[jj];
     beta = dot_mpfr (&dimL, sol1L, &IONE, sol1L, &IONE);            beta = sqrt(beta);
     if (myId == 0) 
         printf ("Error: %20.10e\n", beta);

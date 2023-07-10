@@ -33,7 +33,7 @@ LIBLIST = -L. -lhbio -lclock -lvector -lm -lc
 LIBLIST = -L. -lhbio -lclock -lm -lc
 LIBLIST = -L. -lsparse -lvector -lclock -lm -lc -L${GMP_HOME}/lib -L${MPFR_HOME}/lib -lmpfr -lgmp
 
-LIBMKL = -L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_core -lmkl_sequential -lpthread
+LIBMKL = #-L${MKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_core -lmkl_sequential -lpthread
 
 # ============================================================
 
